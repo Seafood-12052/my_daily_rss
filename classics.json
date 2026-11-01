@@ -1,0 +1,9 @@
+[
+  {"book":"史记", "title":"陈涉世家", "text":"燕雀安知鸿鹄之志哉！", "note":"陈涉借燕雀与鸿鹄之别，表达自己的志向。", "source":"https://zh.wikisource.org/wiki/史記/卷048", "enabled":true, "tags":[]},
+  {"book":"春秋", "title":"隐公元年", "text":"元年，春，王正月。", "note":"这是《春秋》的开篇；叙事十分简约。", "source":"https://zh.wikisource.org/wiki/春秋/隱公", "enabled":true, "tags":[]},
+  {"book":"左传", "title":"庄公十年", "text":"夫战，勇气也。一鼓作气，再而衰，三而竭。", "note":"曹刿以鼓声与士气解释作战时机。", "source":"https://zh.wikisource.org/wiki/春秋左傳/莊公", "enabled":true, "tags":[]},
+  {"book":"周易", "title":"乾卦·象传", "text":"天行健，君子以自強不息。", "note":"象传从天的运行引申出自我勉励的态度。", "source":"https://zh.wikisource.org/wiki/周易/乾", "enabled":true, "tags":[]},
+  {"book":"素书", "title":"原始章", "text":"夫道、德、仁、義、禮，五者一體也。", "note":"开篇把五个概念放在一起讨论。", "source":"https://zh.wikisource.org/wiki/素書", "enabled":true, "tags":[]},
+  {"book":"黄帝内经", "title":"素问·上古天真论", "text":"恬惔虛無，真氣從之，精神內守，病安從來。", "note":"这里体现了古代医学对精神状态和养生的理解，作为历史文献阅读。", "source":"https://zh.wikisource.org/wiki/黃帝內經素問/上古天真論篇第一", "enabled":true, "tags":[]},
+  {"book":"伤寒论", "title":"辨太阳病脉证并治上", "text":"太陽之為病，脈浮，頭項強痛而惡寒。", "note":"这是传统医学对太阳病的描述；它不能直接替代现代诊断。", "source":"https://zh.wikisource.org/wiki/傷寒論/辨太陽病脈證并治上", "enabled":true, "tags":[]}
+]
