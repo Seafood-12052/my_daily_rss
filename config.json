@@ -11,10 +11,10 @@
     "指控系统与海战场": ["command and control", "command-and-control", "指挥控制", "指控系统", "naval warfare", "maritime domain awareness", "海战场", "海军"]
   },
   "sources": [
-    {"name": "NASA", "url": "https://www.nasa.gov/feed/", "language": "en", "allow_full_republish": false},
+    {"name": "NASA", "url": "https://www.nasa.gov/feed/", "language": "en", "allow_full_republish": true},
     {"name": "Obsidian", "url": "https://obsidian.md/blog/rss.xml", "language": "en", "allow_full_republish": false},
     {"name": "OpenAI", "url": "https://openai.com/news/rss.xml", "language": "en", "allow_full_republish": false},
     {"name": "arXiv 机器学习", "url": "https://rss.arxiv.org/rss/cs.LG", "language": "en", "allow_full_republish": false},
-    {"name": "USNI News", "url": "https://news.usni.org/feed/", "language": "en", "allow_full_republish": false}
+    {"name": "USNI News", "url": "https://news.usni.org/feed/", "language": "en", "allow_full_republish": true}
   ]
 }
