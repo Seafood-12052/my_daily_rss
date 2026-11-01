@@ -40,6 +40,7 @@ def published(entry):
 
 def collect(config, now):
     candidates = []
+    links = set()
     for source in config["sources"]:
         if not source.get("allow_full_republish", False):
             continue
@@ -52,9 +53,12 @@ def collect(config, now):
                 link = item.get("link", "")
                 if not when or not link.startswith(("https://", "http://")):
                     continue
+                if link in links:
+                    continue
                 age = (now - when).total_seconds() / 86400
                 if age < -1 or age > 90:
                     continue
+                links.add(link)
                 text = clean(item.get("title", "") + " " + item.get("summary", "")).lower()
                 topics = [name for name, terms in config["topics"].items()
                           if any(term.lower() in text for term in terms)]
@@ -68,18 +72,21 @@ def collect(config, now):
 
 def ordered_candidates(candidates, category, topics, rng):
     pool = [c for c in candidates if category == "random" or c["topics"]]
+    preferred_topic = None
     if category == "interest" and pool:
         available = [t for t in topics if any(t in c["topics"] for c in pool)]
-        topic = rng.choice(available)
-        pool = [c for c in pool if topic in c["topics"]]
+        preferred_topic = rng.choice(available)
     # Prefer recency while preserving random choice; 7d, then 30d, then 90d.
     result = []
-    for low, high in ((-1, 7), (7, 30), (30, 90)):
-        group = [c for c in pool if low < c["age"] <= high]
-        while group:
-            c = rng.choices(group, weights=[1 / (1 + x["age"] / 7) for x in group])[0]
-            result.append(c)
-            group.remove(c)
+    groups = ([c for c in pool if preferred_topic in c["topics"]],
+              [c for c in pool if preferred_topic not in c["topics"]]) if preferred_topic else (pool,)
+    for topic_group in groups:
+        for low, high in ((-1, 7), (7, 30), (30, 90)):
+            group = [c for c in topic_group if low < c["age"] <= high]
+            while group:
+                c = rng.choices(group, weights=[1 / (1 + x["age"] / 7) for x in group])[0]
+                result.append(c)
+                group.remove(c)
     return result
 
 
@@ -112,7 +119,7 @@ def get_article(candidate, minutes):
     # Cheap length filter before paying for translation. English is ~200–250 words/minute.
     if candidate["language"] == "en":
         n = len(re.findall(r"\b[\w'-]+\b", extracted))
-        bounds = (600, 1600) if minutes == 5 else (1300, 3100)
+        bounds = (350, 1600) if minutes == 5 else (800, 3100)
     else:
         n = len(re.findall(r"[\u3400-\u9fff]", extracted))
         bounds = (750, 1800) if minutes == 5 else (1500, 3600)
@@ -136,20 +143,25 @@ def bounds_for_chinese(minutes):
 
 def classic_item(classics, state, today, rng):
     available = [x for x in classics if x.get("enabled", True) and "暂不阅读" not in x.get("tags", [])
-                 and "已读" not in x.get("tags", [])]
+                 and "已读" not in x.get("tags", []) and x.get("summary") and x.get("notes")]
     if not available:
         return None
     unseen = [x for x in available if classic_id(x) not in state["classic_seen"]]
     if not unseen:
-        logging.warning("古籍选段已读完；请添加选段或重置历史")
-        return None
+        logging.warning("古籍选段已读完，将重新随机抽取；请添加更多选段")
+        state["classic_seen"] = [x for x in state["classic_seen"] if x not in {classic_id(y) for y in available}]
+        unseen = available
     books = sorted({x["book"] for x in unseen})
     book = rng.choice(books)
     choice = rng.choice([x for x in unseen if x["book"] == book])
     state["classic_seen"].append(classic_id(choice))
-    return {"id": "classic:" + classic_id(choice), "day": today, "title": "古籍｜" + choice["book"] + "·" + choice["title"],
-            "link": choice["source"], "body": "<p>" + html.escape(choice["text"]) + "</p><p>辅助阅读：" +
-            html.escape(choice.get("note", "")) + "</p>", "timestamp": dt.datetime.now(UTC).isoformat()}
+    paragraphs = "".join("<p>" + html.escape(p) + "</p>" for p in re.split(r"\n\s*\n", choice["text"]) if p.strip())
+    notes = "".join("<li>" + html.escape(term) + "：" + html.escape(meaning) + "</li>"
+                    for term, meaning in choice["notes"])
+    return {"id": "classic:" + today + ":" + classic_id(choice), "day": today,
+            "title": "古籍｜" + choice["book"] + "·" + choice["title"] + "（约10分钟）",
+            "link": choice["source"], "body": paragraphs + "<p>词语解释：</p><ul>" + notes +
+            "</ul><p>大意：" + html.escape(choice["summary"]) + "</p>", "timestamp": dt.datetime.now(UTC).isoformat()}
 
 
 def classic_id(item):
@@ -196,7 +208,11 @@ def main():
         if any(x["id"] == item_id for x in state["items"]):
             continue
         available = [c for c in candidates if c["link"] not in state["seen"]]
-        for candidate in ordered_candidates(available, plan[i], config["topics"], rng):
+        ranked = [(c, plan[i]) for c in ordered_candidates(available, plan[i], config["topics"], rng)]
+        if plan[i] == "interest":
+            ranked += [(c, "fallback") for c in ordered_candidates(
+                [c for c in available if not c["topics"]], "random", config["topics"], rng)]
+        for candidate, selection in ranked:
             try:
                 result = get_article(candidate, minutes)
             except (requests.RequestException, ValueError, KeyError, IndexError, TypeError) as exc:
@@ -206,7 +222,8 @@ def main():
                 continue
             title, body = result
             paragraphs = "".join("<p>" + html.escape(p) + "</p>" for p in re.split(r"\n\s*\n", body) if p.strip())
-            meta = f"{candidate['source']} · {candidate['when'].date().isoformat()} · 约{minutes}分钟 · " + ("兴趣领域" if plan[i] == "interest" else "随机发现")
+            category = {"interest": "兴趣领域", "random": "随机发现", "fallback": "随机发现（兴趣候选不足）"}[selection]
+            meta = f"{candidate['source']} · {candidate['when'].date().isoformat()} · 约{minutes}分钟 · " + category
             state["items"].append({"id": item_id, "day": today, "title": title, "link": candidate["link"],
                                    "body": "<p>" + html.escape(meta) + "</p>" + paragraphs,
                                    "timestamp": now.isoformat()})

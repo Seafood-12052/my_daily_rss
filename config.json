@@ -12,6 +12,10 @@
   },
   "sources": [
     {"name": "NASA", "url": "https://www.nasa.gov/feed/", "language": "en", "allow_full_republish": true},
+    {"name": "NASA 技术", "url": "https://www.nasa.gov/technology/feed/", "language": "en", "allow_full_republish": true},
+    {"name": "NASA 航空", "url": "https://www.nasa.gov/aeronautics/feed/", "language": "en", "allow_full_republish": true},
+    {"name": "NASA 新闻", "url": "https://www.nasa.gov/news-release/feed/", "language": "en", "allow_full_republish": true},
+    {"name": "NASA 艾姆斯研究中心", "url": "https://www.nasa.gov/centers-and-facilities/ames/feed/", "language": "en", "allow_full_republish": true},
     {"name": "Obsidian", "url": "https://obsidian.md/blog/rss.xml", "language": "en", "allow_full_republish": false},
     {"name": "OpenAI", "url": "https://openai.com/news/rss.xml", "language": "en", "allow_full_republish": false},
     {"name": "arXiv 机器学习", "url": "https://rss.arxiv.org/rss/cs.LG", "language": "en", "allow_full_republish": false},
