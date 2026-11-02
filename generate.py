@@ -15,6 +15,7 @@ import xml.etree.ElementTree as ET
 import feedparser
 import requests
 import trafilatura
+from openai import APIError, OpenAI
 
 ROOT = Path(__file__).resolve().parent
 STATE = ROOT / "state.json"
@@ -96,14 +97,13 @@ def translate(title, text):
     model = os.getenv("TRANSLATION_MODEL")
     if not key or not base or not model:
         raise ValueError("未设置翻译 API；英文文章不会发布")
-    response = SESSION.post(base + "/chat/completions", timeout=120,
-        headers={"Authorization": "Bearer " + key},
-        json={"model": model, "temperature": 0.2, "messages": [
+    client = OpenAI(api_key=key, base_url=base, timeout=120, max_retries=0)
+    response = client.chat.completions.create(
+        model=model, temperature=0.2, messages=[
             {"role": "system", "content": "将用户提供的英文标题及文章完整忠实翻译成简体中文，不要总结或增删。只输出 JSON 对象，包含 title 和 body 两个字符串字段。保留段落换行。"},
             {"role": "user", "content": json.dumps({"title": title, "body": text}, ensure_ascii=False)}
-        ]})
-    response.raise_for_status()
-    content = response.json()["choices"][0]["message"]["content"].strip()
+        ])
+    content = (response.choices[0].message.content or "").strip()
     content = re.sub(r"^\s*```(?:json)?\s*|\s*```\s*$", "", content)
     data = json.loads(content)
     return data["title"], data["body"]
@@ -242,7 +242,7 @@ def main():
         for candidate, selection in ranked:
             try:
                 result = get_article(candidate, minutes)
-            except (requests.RequestException, ValueError, KeyError, IndexError, TypeError) as exc:
+            except (requests.RequestException, APIError, ValueError, KeyError, IndexError, TypeError) as exc:
                 logging.warning("文章处理失败 %s: %s", candidate["link"], exc)
                 continue
             if not result:

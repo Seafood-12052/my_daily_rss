@@ -15,10 +15,27 @@ requests.RequestException = Exception
 sys.modules.setdefault("requests", requests)
 sys.modules.setdefault("feedparser", types.ModuleType("feedparser"))
 sys.modules.setdefault("trafilatura", types.ModuleType("trafilatura"))
+openai = types.ModuleType("openai")
+openai.OpenAI = object
+openai.APIError = type("APIError", (Exception,), {})
+sys.modules.setdefault("openai", openai)
 g = importlib.import_module("generate")
 
 
 class FeedTests(unittest.TestCase):
+    def test_translate_uses_configured_base_url_with_sdk(self):
+        from unittest.mock import Mock
+        response = types.SimpleNamespace(choices=[types.SimpleNamespace(message=types.SimpleNamespace(
+            content='{"title":"标题","body":"译文"}'))])
+        client = Mock()
+        client.chat.completions.create.return_value = response
+        with patch.dict(g.os.environ, {"TRANSLATION_API_KEY": "test", "TRANSLATION_BASE_URL": "https://api.deepseek.com",
+                                      "TRANSLATION_MODEL": "deepseek-flash"}), \
+             patch.object(g, "OpenAI", return_value=client) as factory:
+            self.assertEqual(g.translate("title", "body"), ("标题", "译文"))
+            self.assertEqual(factory.call_args.kwargs["base_url"], "https://api.deepseek.com")
+            self.assertEqual(client.chat.completions.create.call_args.kwargs["model"], "deepseek-flash")
+
     def test_interest_and_random_pools(self):
         candidates = [
             {"topics": ["AI"], "age": 2, "link": "a"},
