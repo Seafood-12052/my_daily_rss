@@ -50,7 +50,7 @@ class FeedTests(unittest.TestCase):
 
     def test_classics_skip_excluded_and_record_history(self):
         classics = [
-            {"book": "A", "title": "1", "text": "正文" * 500, "source": "https://example.org", "tags": [], "summary": "大意", "notes": [["词", "释义"]]},
+            {"book": "A", "title": "1", "text": "词正文。" * 125, "source": "https://example.org", "tags": [], "summary": "大意", "notes": [["词", "释义"]]},
             {"book": "B", "title": "2", "text": "正文", "source": "https://example.org", "tags": ["已读"], "summary": "大意", "notes": [["词", "释义"]]},
         ]
         state = {"classic_seen": [], "items": []}
@@ -70,18 +70,30 @@ class FeedTests(unittest.TestCase):
             self.assertTrue(item["summary"])
             self.assertTrue(all(term in item["text"] for term, _ in item["notes"]))
 
-    def test_three_daily_classic_packets_are_long_and_do_not_repeat(self):
+    def test_three_daily_classic_passages_are_short_and_do_not_repeat(self):
         classics = g.load(g.ROOT / "classics.json", [])
+        segments = {s["segment_id"]: s for item in classics for s in g.classic_segments(item)}
+        for segment in segments.values():
+            count = len(g.re.findall(r"[\u3400-\u9fff]", segment["text"]))
+            self.assertGreaterEqual(count, 200)
+            self.assertLessEqual(count, 400)
         for seed in range(30):
             state = {"items": [], "classic_seen": []}
             for slot in range(3):
                 item = g.classic_item(classics, state, "2026-11-02", slot, random.Random(seed + slot))
                 self.assertIsNotNone(item)
-                text = "".join(x["text"] for x in classics if g.classic_id(x) in item["classic_ids"])
-                self.assertGreaterEqual(len(g.re.findall(r"[\u3400-\u9fff]", text)), 1000)
+                self.assertEqual(len(item["classic_ids"]), 1)
+                self.assertIn(item["classic_ids"][0], segments)
                 previous = {key for row in state["items"] for key in row["classic_ids"]}
                 self.assertFalse(previous.intersection(item["classic_ids"]))
                 state["items"].append(item)
+
+    def test_previous_full_passage_is_not_repeated_today(self):
+        classics = g.load(g.ROOT / "classics.json", [])
+        state = {"classic_seen": [], "items": [{"day": "2026-11-02", "classic_ids": [g.classic_id(classics[0])]}]}
+        for seed in range(30):
+            item = g.classic_item(classics, state, "2026-11-02", 1, random.Random(seed))
+            self.assertNotIn(item["classic_ids"][0], {x["segment_id"] for x in g.classic_segments(classics[0])})
 
     def test_schedule_selects_slot_even_when_delayed(self):
         now = dt.datetime(2026, 11, 2, 10, tzinfo=dt.timezone.utc)

@@ -3,6 +3,7 @@ import calendar
 import datetime as dt
 import email.utils
 import html
+import hashlib
 import json
 import logging
 import os
@@ -141,43 +142,64 @@ def bounds_for_chinese(minutes):
     return (750, 1800) if minutes == 5 else (1500, 3600)
 
 
+def classic_segments(item):
+    """Split a passage into approximately 330-character pieces at sentence boundaries."""
+    text = item["text"]
+    positions = [match.end() for match in re.finditer(r'[。！？；][」』”]*', text)]
+    total = len(re.findall(r"[\u3400-\u9fff]", text))
+    if total < 150:
+        return []
+    target_parts = max(1, round(total / 330))
+    boundaries = [0]
+    for index in range(1, target_parts):
+        target = total * index / target_parts
+        candidates = [pos for pos in positions if pos > boundaries[-1] and pos < len(text)]
+        if not candidates:
+            break
+        boundary = min(candidates, key=lambda pos: abs(len(re.findall(r"[\u3400-\u9fff]", text[:pos])) - target))
+        boundaries.append(boundary)
+    boundaries.append(len(text))
+    parent = classic_id(item)
+    digest = hashlib.sha256(parent.encode("utf-8")).hexdigest()
+    return [{**item, "text": text[start:end].strip(), "parent_id": parent,
+             "segment_id": f"segment:{digest}:{index}", "part": index + 1, "parts": len(boundaries) - 1}
+            for index, (start, end) in enumerate(zip(boundaries, boundaries[1:]))]
+
+
 def classic_item(classics, state, today, slot, rng):
-    available = [x for x in classics if x.get("enabled", True) and "暂不阅读" not in x.get("tags", [])
-                 and "已读" not in x.get("tags", []) and x.get("summary") and x.get("notes")]
+    eligible = [x for x in classics if x.get("enabled", True) and "暂不阅读" not in x.get("tags", [])
+                and "已读" not in x.get("tags", []) and x.get("summary") and x.get("notes")]
+    available = [segment for item in eligible for segment in classic_segments(item)]
     used_today = {key for row in state["items"] if row["day"] == today
                   for key in row.get("classic_ids", [])}
-    pool = [x for x in available if classic_id(x) not in used_today]
-    chosen, seen = [], list(state["classic_seen"])
-    count = 0
-    while count < 1000 and pool:
-        unseen = [x for x in pool if classic_id(x) not in seen]
-        if not unseen:
-            logging.warning("古籍选段已读完，将重新抽取；请添加更多选段")
-            seen = [key for key in seen if key not in {classic_id(x) for x in available}]
-            unseen = pool
-        book = rng.choice(sorted({x["book"] for x in unseen}))
-        choice = rng.choice([x for x in unseen if x["book"] == book])
-        pool.remove(choice)
-        chosen.append(choice)
-        seen.append(classic_id(choice))
-        count += len(re.findall(r"[\u3400-\u9fff]", choice["text"]))
-    if count < 1000:
-        logging.warning("古籍选段不足 1000 字，暂不发布；请添加更多选段")
+    pool = [x for x in available if x["segment_id"] not in used_today and x["parent_id"] not in used_today]
+    if not pool:
+        logging.warning("当天没有更多可用古籍选段；请添加更多选段")
         return None
+    seen = list(state["classic_seen"])
+    unseen = [x for x in pool if x["segment_id"] not in seen and x["parent_id"] not in seen]
+    if not unseen:
+        logging.warning("古籍选段已读完，将重新抽取；请添加更多选段")
+        keys = {x["segment_id"] for x in available} | {x["parent_id"] for x in available}
+        seen = [key for key in seen if key not in keys]
+        unseen = pool
+    book = rng.choice(sorted({x["book"] for x in unseen}))
+    choice = rng.choice([x for x in unseen if x["book"] == book])
+    seen.append(choice["segment_id"])
     state["classic_seen"] = seen
-    parts = []
-    for choice in chosen:
-        paragraphs = "".join("<p>" + html.escape(p) + "</p>" for p in re.split(r"\n\s*\n", choice["text"]) if p.strip())
-        notes = "".join("<li>" + html.escape(term) + "：" + html.escape(meaning) + "</li>"
-                        for term, meaning in choice["notes"])
-        parts.append("<h2>" + html.escape(choice["book"] + "·" + choice["title"]) + "</h2>" +
-                     paragraphs + "<p>词语解释：</p><ul>" + notes + "</ul><p>大意：" +
-                     html.escape(choice["summary"]) + '</p><p><a href="' +
-                     html.escape(choice["source"], quote=True) + '">原文出处</a></p>')
+    paragraphs = "".join("<p>" + html.escape(p) + "</p>" for p in re.split(r"\n\s*\n", choice["text"]) if p.strip())
+    notes = "".join("<li>" + html.escape(term) + "：" + html.escape(meaning) + "</li>"
+                    for term, meaning in choice["notes"] if term in choice["text"])
+    note_text = "<p>词语解释：</p><ul>" + notes + "</ul>" if notes else ""
+    title = choice["book"] + "·" + choice["title"]
+    if choice["parts"] > 1:
+        title += f"（{choice['part']}/{choice['parts']}）"
     return {"id": f"classic:{today}:{slot}", "day": today,
-            "title": "古籍｜" + "、".join(x["book"] + "·" + x["title"] for x in chosen) + "（约10分钟或更长）",
-            "link": chosen[0]["source"], "body": "".join(parts),
-            "classic_ids": [classic_id(x) for x in chosen], "timestamp": dt.datetime.now(UTC).isoformat()}
+            "title": "古籍｜" + title, "link": choice["source"],
+            "body": "<h2>" + html.escape(title) + "</h2>" + paragraphs + note_text +
+                    "<p>原选段大意：" + html.escape(choice["summary"]) + '</p><p><a href="' +
+                    html.escape(choice["source"], quote=True) + '">原文出处</a></p>',
+            "classic_ids": [choice["segment_id"]], "timestamp": dt.datetime.now(UTC).isoformat()}
 
 
 def classic_slot(now, timezone, schedule):
