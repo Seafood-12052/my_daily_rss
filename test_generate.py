@@ -33,15 +33,15 @@ class FeedTests(unittest.TestCase):
 
     def test_classics_skip_excluded_and_record_history(self):
         classics = [
-            {"book": "A", "title": "1", "text": "正文", "source": "https://example.org", "tags": [], "summary": "大意", "notes": [["词", "释义"]]},
+            {"book": "A", "title": "1", "text": "正文" * 500, "source": "https://example.org", "tags": [], "summary": "大意", "notes": [["词", "释义"]]},
             {"book": "B", "title": "2", "text": "正文", "source": "https://example.org", "tags": ["已读"], "summary": "大意", "notes": [["词", "释义"]]},
         ]
-        state = {"classic_seen": []}
-        item = g.classic_item(classics, state, "2026-11-01", random.Random(1))
+        state = {"classic_seen": [], "items": []}
+        item = g.classic_item(classics, state, "2026-11-01", 0, random.Random(1))
         self.assertIn("A", item["title"])
         self.assertIn("词语解释", item["body"])
         self.assertIn("大意", item["body"])
-        repeated = g.classic_item(classics, state, "2026-11-02", random.Random(1))
+        repeated = g.classic_item(classics, state, "2026-11-02", 0, random.Random(1))
         self.assertNotEqual(item["id"], repeated["id"])
         self.assertIn("A", repeated["title"])
 
@@ -52,6 +52,25 @@ class FeedTests(unittest.TestCase):
             self.assertGreaterEqual(len(item["text"]), 600)
             self.assertTrue(item["summary"])
             self.assertTrue(all(term in item["text"] for term, _ in item["notes"]))
+
+    def test_three_daily_classic_packets_are_long_and_do_not_repeat(self):
+        classics = g.load(g.ROOT / "classics.json", [])
+        for seed in range(30):
+            state = {"items": [], "classic_seen": []}
+            for slot in range(3):
+                item = g.classic_item(classics, state, "2026-11-02", slot, random.Random(seed + slot))
+                self.assertIsNotNone(item)
+                text = "".join(x["text"] for x in classics if g.classic_id(x) in item["classic_ids"])
+                self.assertGreaterEqual(len(g.re.findall(r"[\u3400-\u9fff]", text)), 1000)
+                previous = {key for row in state["items"] for key in row["classic_ids"]}
+                self.assertFalse(previous.intersection(item["classic_ids"]))
+                state["items"].append(item)
+
+    def test_schedule_selects_slot_even_when_delayed(self):
+        now = dt.datetime(2026, 11, 2, 10, tzinfo=dt.timezone.utc)
+        self.assertEqual(g.classic_slot(now, "Asia/Shanghai", "17 22 * * *"), 0)
+        self.assertEqual(g.classic_slot(now, "Asia/Shanghai", "17 04 * * *"), 1)
+        self.assertEqual(g.classic_slot(now, "Asia/Shanghai", "17 10 * * *"), 2)
 
     def test_interest_search_tries_other_matching_topics(self):
         candidates = [
@@ -80,11 +99,17 @@ class FeedTests(unittest.TestCase):
             (root / "state.json").write_text(g.json.dumps(state), encoding="utf-8")
             with patch.object(g, "ROOT", root), patch.object(g, "STATE", root / "state.json"), \
                  patch.object(g, "OUT", root / "public"), patch.object(g, "collect", return_value=candidates), \
-                 patch.object(g, "get_article", side_effect=lambda c, m: (c["title"], "正文")):
+                 patch.object(g, "get_article", side_effect=lambda c, m: (c["title"], "正文")), \
+                 patch.object(g, "classic_slot", return_value=0):
                 g.main()
                 g.main()
+                with patch.object(g, "classic_slot", return_value=1):
+                    g.main()
+                    g.main()
+                with patch.object(g, "classic_slot", return_value=2):
+                    g.main()
                 saved = g.load(root / "state.json", {})
-                self.assertEqual(len(saved["items"]), 4)
+                self.assertEqual(len(saved["items"]), 6)
                 self.assertEqual(len(saved["seen"]), 3)
                 self.assertTrue(any("兴趣候选不足" in x["body"] for x in saved["items"]))
 

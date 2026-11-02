@@ -141,27 +141,51 @@ def bounds_for_chinese(minutes):
     return (750, 1800) if minutes == 5 else (1500, 3600)
 
 
-def classic_item(classics, state, today, rng):
+def classic_item(classics, state, today, slot, rng):
     available = [x for x in classics if x.get("enabled", True) and "暂不阅读" not in x.get("tags", [])
                  and "已读" not in x.get("tags", []) and x.get("summary") and x.get("notes")]
-    if not available:
+    used_today = {key for row in state["items"] if row["day"] == today
+                  for key in row.get("classic_ids", [])}
+    pool = [x for x in available if classic_id(x) not in used_today]
+    chosen, seen = [], list(state["classic_seen"])
+    count = 0
+    while count < 1000 and pool:
+        unseen = [x for x in pool if classic_id(x) not in seen]
+        if not unseen:
+            logging.warning("古籍选段已读完，将重新抽取；请添加更多选段")
+            seen = [key for key in seen if key not in {classic_id(x) for x in available}]
+            unseen = pool
+        book = rng.choice(sorted({x["book"] for x in unseen}))
+        choice = rng.choice([x for x in unseen if x["book"] == book])
+        pool.remove(choice)
+        chosen.append(choice)
+        seen.append(classic_id(choice))
+        count += len(re.findall(r"[\u3400-\u9fff]", choice["text"]))
+    if count < 1000:
+        logging.warning("古籍选段不足 1000 字，暂不发布；请添加更多选段")
         return None
-    unseen = [x for x in available if classic_id(x) not in state["classic_seen"]]
-    if not unseen:
-        logging.warning("古籍选段已读完，将重新随机抽取；请添加更多选段")
-        state["classic_seen"] = [x for x in state["classic_seen"] if x not in {classic_id(y) for y in available}]
-        unseen = available
-    books = sorted({x["book"] for x in unseen})
-    book = rng.choice(books)
-    choice = rng.choice([x for x in unseen if x["book"] == book])
-    state["classic_seen"].append(classic_id(choice))
-    paragraphs = "".join("<p>" + html.escape(p) + "</p>" for p in re.split(r"\n\s*\n", choice["text"]) if p.strip())
-    notes = "".join("<li>" + html.escape(term) + "：" + html.escape(meaning) + "</li>"
-                    for term, meaning in choice["notes"])
-    return {"id": "classic:" + today + ":" + classic_id(choice), "day": today,
-            "title": "古籍｜" + choice["book"] + "·" + choice["title"] + "（约10分钟）",
-            "link": choice["source"], "body": paragraphs + "<p>词语解释：</p><ul>" + notes +
-            "</ul><p>大意：" + html.escape(choice["summary"]) + "</p>", "timestamp": dt.datetime.now(UTC).isoformat()}
+    state["classic_seen"] = seen
+    parts = []
+    for choice in chosen:
+        paragraphs = "".join("<p>" + html.escape(p) + "</p>" for p in re.split(r"\n\s*\n", choice["text"]) if p.strip())
+        notes = "".join("<li>" + html.escape(term) + "：" + html.escape(meaning) + "</li>"
+                        for term, meaning in choice["notes"])
+        parts.append("<h2>" + html.escape(choice["book"] + "·" + choice["title"]) + "</h2>" +
+                     paragraphs + "<p>词语解释：</p><ul>" + notes + "</ul><p>大意：" +
+                     html.escape(choice["summary"]) + '</p><p><a href="' +
+                     html.escape(choice["source"], quote=True) + '">原文出处</a></p>')
+    return {"id": f"classic:{today}:{slot}", "day": today,
+            "title": "古籍｜" + "、".join(x["book"] + "·" + x["title"] for x in chosen) + "（约10分钟或更长）",
+            "link": chosen[0]["source"], "body": "".join(parts),
+            "classic_ids": [classic_id(x) for x in chosen], "timestamp": dt.datetime.now(UTC).isoformat()}
+
+
+def classic_slot(now, timezone, schedule):
+    schedules = {"17 22 * * *": 0, "17 04 * * *": 1, "17 10 * * *": 2}
+    if schedule in schedules:
+        return schedules[schedule]
+    hour = now.astimezone(ZoneInfo(timezone)).hour
+    return 0 if hour < 12 else 1 if hour < 18 else 2
 
 
 def classic_id(item):
@@ -198,8 +222,11 @@ def main():
     rng = random.SystemRandom()
     plan = state["plans"].setdefault(today, [("interest" if rng.random() < .7 else "random") for _ in range(3)])
     today_items = [x for x in state["items"] if x["day"] == today]
-    if not any(x["id"].startswith("classic:") for x in today_items):
-        classic = classic_item(classics, state, today, rng)
+    slot = classic_slot(now, config["timezone"], os.getenv("RSS_SCHEDULE", ""))
+    classic_id_for_slot = f"classic:{today}:{slot}"
+    legacy_first = slot == 0 and any(x["id"].startswith("classic:") and not x.get("classic_ids") for x in today_items)
+    if not legacy_first and not any(x["id"] == classic_id_for_slot for x in today_items):
+        classic = classic_item(classics, state, today, slot, rng)
         if classic:
             state["items"].append(classic)
     candidates = collect(config, now) if any(not any(x["id"] == today + ":" + str(i) for x in today_items) for i in range(3)) else []

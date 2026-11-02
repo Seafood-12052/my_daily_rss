@@ -29,6 +29,7 @@ jobs:
           TRANSLATION_BASE_URL: ${{ vars.TRANSLATION_BASE_URL }}
           TRANSLATION_MODEL: ${{ vars.TRANSLATION_MODEL }}
           FEED_SITE_URL: ${{ vars.FEED_SITE_URL }}
+          RSS_SCHEDULE: ${{ github.event.schedule }}
       - name: 保存去重与抽签状态
         run: |
           git config user.name "github-actions[bot]"
