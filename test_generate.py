@@ -18,6 +18,7 @@ sys.modules.setdefault("trafilatura", types.ModuleType("trafilatura"))
 openai = types.ModuleType("openai")
 openai.OpenAI = object
 openai.APIError = type("APIError", (Exception,), {})
+openai.AuthenticationError = type("AuthenticationError", (openai.APIError,), {})
 sys.modules.setdefault("openai", openai)
 g = importlib.import_module("generate")
 
@@ -54,11 +55,11 @@ class FeedTests(unittest.TestCase):
             {"book": "B", "title": "2", "text": "正文", "source": "https://example.org", "tags": ["已读"], "summary": "大意", "notes": [["词", "释义"]]},
         ]
         state = {"classic_seen": [], "items": []}
-        item = g.classic_item(classics, state, "2026-11-01", 0, random.Random(1))
+        item = g.classic_item(classics, state, "2026-11-01", random.Random(1))
         self.assertIn("A", item["title"])
         self.assertIn("词语解释", item["body"])
         self.assertIn("大意", item["body"])
-        repeated = g.classic_item(classics, state, "2026-11-02", 0, random.Random(1))
+        repeated = g.classic_item(classics, state, "2026-11-02", random.Random(1))
         self.assertNotEqual(item["id"], repeated["id"])
         self.assertIn("A", repeated["title"])
 
@@ -80,7 +81,7 @@ class FeedTests(unittest.TestCase):
         for seed in range(30):
             state = {"items": [], "classic_seen": []}
             for slot in range(3):
-                item = g.classic_item(classics, state, "2026-11-02", slot, random.Random(seed + slot))
+                item = g.classic_item(classics, state, "2026-11-02", random.Random(seed + slot))
                 self.assertIsNotNone(item)
                 self.assertEqual(len(item["classic_ids"]), 1)
                 self.assertIn(item["classic_ids"][0], segments)
@@ -92,14 +93,50 @@ class FeedTests(unittest.TestCase):
         classics = g.load(g.ROOT / "classics.json", [])
         state = {"classic_seen": [], "items": [{"day": "2026-11-02", "classic_ids": [g.classic_id(classics[0])]}]}
         for seed in range(30):
-            item = g.classic_item(classics, state, "2026-11-02", 1, random.Random(seed))
+            item = g.classic_item(classics, state, "2026-11-02", random.Random(seed))
             self.assertNotIn(item["classic_ids"][0], {x["segment_id"] for x in g.classic_segments(classics[0])})
 
-    def test_schedule_selects_slot_even_when_delayed(self):
-        now = dt.datetime(2026, 11, 2, 10, tzinfo=dt.timezone.utc)
-        self.assertEqual(g.classic_slot(now, "Asia/Shanghai", "17 22 * * *"), 0)
-        self.assertEqual(g.classic_slot(now, "Asia/Shanghai", "17 04 * * *"), 1)
-        self.assertEqual(g.classic_slot(now, "Asia/Shanghai", "17 10 * * *"), 2)
+    def test_classics_cycle_when_all_segments_used_today(self):
+        classics = g.load(g.ROOT / "classics.json", [])[:1]
+        state = {"classic_seen": [], "items": []}
+        for _ in range(3):
+            item = g.classic_item(classics, state, "2026-11-02", random.Random(1))
+            self.assertIsNotNone(item)
+            state["items"].append(item)
+        self.assertEqual(len({x["id"] for x in state["items"]}), 3)
+        self.assertNotEqual(state["items"][0]["classic_ids"], state["items"][1]["classic_ids"])
+
+    def test_rate_limited_host_is_not_requested_again_in_run(self):
+        from unittest.mock import Mock
+        response = Mock(status_code=429)
+        response.raise_for_status.side_effect = RuntimeError("429")
+        session = Mock()
+        session.get.return_value = response
+        g.RATE_LIMITED_HOSTS.clear()
+        with patch.object(g, "SESSION", session):
+            with self.assertRaises(RuntimeError):
+                g.fetch_url("https://example.com/a", 1)
+            with self.assertRaises(g.HostRateLimited):
+                g.fetch_url("https://example.com/b", 1)
+        self.assertEqual(session.get.call_count, 1)
+
+    def test_invalid_translation_key_skips_further_english_but_saves_classic(self):
+        now = dt.datetime.now(dt.timezone.utc)
+        candidates = [{"topics": [], "age": 1, "link": f"https://example.org/{i}",
+                       "title": "Title", "source": "Example", "language": "en", "when": now}
+                      for i in range(3)]
+        with tempfile.TemporaryDirectory(dir=Path(__file__).resolve().parent) as folder:
+            root = Path(folder)
+            (root / "config.json").write_text(g.json.dumps({"title": "Test", "timezone": "Asia/Shanghai",
+                "topics": {}, "sources": []}), encoding="utf-8")
+            (root / "classics.json").write_text((g.ROOT / "classics.json").read_text(encoding="utf-8"), encoding="utf-8")
+            with patch.object(g, "ROOT", root), patch.object(g, "STATE", root / "state.json"), \
+                 patch.object(g, "OUT", root / "public"), patch.object(g, "collect", return_value=candidates), \
+                 patch.object(g, "get_article", side_effect=g.AuthenticationError("invalid")) as get_article:
+                g.main()
+                self.assertEqual(get_article.call_count, 1)
+                self.assertEqual(len(g.load(root / "state.json", {})["items"]), 1)
+                self.assertTrue((root / "public" / "feed.xml").exists())
 
     def test_interest_search_tries_other_matching_topics(self):
         candidates = [
@@ -128,17 +165,16 @@ class FeedTests(unittest.TestCase):
             (root / "state.json").write_text(g.json.dumps(state), encoding="utf-8")
             with patch.object(g, "ROOT", root), patch.object(g, "STATE", root / "state.json"), \
                  patch.object(g, "OUT", root / "public"), patch.object(g, "collect", return_value=candidates), \
-                 patch.object(g, "get_article", side_effect=lambda c, m: (c["title"], "正文")), \
-                 patch.object(g, "classic_slot", return_value=0):
+                 patch.object(g, "get_article", side_effect=lambda c, m: (c["title"], "正文")):
                 g.main()
                 g.main()
-                with patch.object(g, "classic_slot", return_value=1):
-                    g.main()
-                    g.main()
-                with patch.object(g, "classic_slot", return_value=2):
-                    g.main()
+                g.main()
+                g.main()
+                g.main()
                 saved = g.load(root / "state.json", {})
-                self.assertEqual(len(saved["items"]), 6)
+                self.assertEqual(len(saved["items"]), 8)
+                classics_saved = [item for item in saved["items"] if item["id"].startswith("classic:")]
+                self.assertEqual(len({item["id"] for item in classics_saved}), 5)
                 self.assertEqual(len(saved["seen"]), 3)
                 self.assertTrue(any("兴趣候选不足" in x["body"] for x in saved["items"]))
 

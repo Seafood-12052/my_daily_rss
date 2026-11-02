@@ -9,14 +9,16 @@ import logging
 import os
 import random
 import re
+import uuid
 from pathlib import Path
+from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 import xml.etree.ElementTree as ET
 
 import feedparser
 import requests
 import trafilatura
-from openai import APIError, OpenAI
+from openai import APIError, AuthenticationError, OpenAI
 
 ROOT = Path(__file__).resolve().parent
 STATE = ROOT / "state.json"
@@ -25,6 +27,22 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 UTC = dt.timezone.utc
 SESSION = requests.Session()
 SESSION.headers.update({"User-Agent": "PersonalReadingRSS/1.0 (+RSS reader)"})
+RATE_LIMITED_HOSTS = set()
+
+
+class HostRateLimited(Exception):
+    pass
+
+
+def fetch_url(url, timeout):
+    host = urlsplit(url).hostname
+    if host in RATE_LIMITED_HOSTS:
+        raise HostRateLimited(host)
+    response = SESSION.get(url, timeout=timeout)
+    if response.status_code == 429:
+        RATE_LIMITED_HOSTS.add(host)
+    response.raise_for_status()
+    return response
 
 
 def load(path, default):
@@ -47,8 +65,7 @@ def collect(config, now):
         if not source.get("allow_full_republish", False):
             continue
         try:
-            response = SESSION.get(source["url"], timeout=25)
-            response.raise_for_status()
+            response = fetch_url(source["url"], timeout=25)
             feed = feedparser.parse(response.content)
             for item in feed.entries[:60]:
                 when = published(item)
@@ -67,6 +84,8 @@ def collect(config, now):
                 candidates.append({"title": clean(item.get("title", "")), "link": link,
                                    "source": source["name"], "language": source["language"],
                                    "when": when, "age": max(age, 0), "topics": topics})
+        except HostRateLimited:
+            continue
         except (requests.RequestException, ValueError) as exc:
             logging.warning("来源 %s 不可用: %s", source["name"], exc)
     return candidates
@@ -111,8 +130,7 @@ def translate(title, text):
 
 
 def get_article(candidate, minutes):
-    response = SESSION.get(candidate["link"], timeout=30)
-    response.raise_for_status()
+    response = fetch_url(candidate["link"], timeout=30)
     extracted = trafilatura.extract(response.text, url=candidate["link"], include_comments=False,
                                     include_tables=True, favor_precision=True)
     if not extracted:
@@ -166,7 +184,7 @@ def classic_segments(item):
             for index, (start, end) in enumerate(zip(boundaries, boundaries[1:]))]
 
 
-def classic_item(classics, state, today, slot, rng):
+def classic_item(classics, state, today, rng):
     eligible = [x for x in classics if x.get("enabled", True) and "暂不阅读" not in x.get("tags", [])
                 and "已读" not in x.get("tags", []) and x.get("summary") and x.get("notes")]
     available = [segment for item in eligible for segment in classic_segments(item)]
@@ -174,7 +192,11 @@ def classic_item(classics, state, today, slot, rng):
                   for key in row.get("classic_ids", [])}
     pool = [x for x in available if x["segment_id"] not in used_today and x["parent_id"] not in used_today]
     if not pool:
-        logging.warning("当天没有更多可用古籍选段；请添加更多选段")
+        pool = available
+        if pool:
+            logging.warning("古籍选段当天已全部使用，将重新抽取")
+    if not pool:
+        logging.warning("没有可用古籍选段；请添加更多选段")
         return None
     seen = list(state["classic_seen"])
     unseen = [x for x in pool if x["segment_id"] not in seen and x["parent_id"] not in seen]
@@ -194,20 +216,12 @@ def classic_item(classics, state, today, slot, rng):
     title = choice["book"] + "·" + choice["title"]
     if choice["parts"] > 1:
         title += f"（{choice['part']}/{choice['parts']}）"
-    return {"id": f"classic:{today}:{slot}", "day": today,
+    return {"id": f"classic:{today}:{uuid.uuid4().hex}", "day": today,
             "title": "古籍｜" + title, "link": choice["source"],
             "body": "<h2>" + html.escape(title) + "</h2>" + paragraphs + note_text +
                     "<p>原选段大意：" + html.escape(choice["summary"]) + '</p><p><a href="' +
                     html.escape(choice["source"], quote=True) + '">原文出处</a></p>',
             "classic_ids": [choice["segment_id"]], "timestamp": dt.datetime.now(UTC).isoformat()}
-
-
-def classic_slot(now, timezone, schedule):
-    schedules = {"17 22 * * *": 0, "17 04 * * *": 1, "17 10 * * *": 2}
-    if schedule in schedules:
-        return schedules[schedule]
-    hour = now.astimezone(ZoneInfo(timezone)).hour
-    return 0 if hour < 12 else 1 if hour < 18 else 2
 
 
 def classic_id(item):
@@ -236,6 +250,7 @@ def render(config, state, now):
 
 
 def main():
+    RATE_LIMITED_HOSTS.clear()
     config = load(ROOT / "config.json", {})
     classics = load(ROOT / "classics.json", [])
     state = load(STATE, {"items": [], "seen": [], "classic_seen": [], "plans": {}})
@@ -244,14 +259,11 @@ def main():
     rng = random.SystemRandom()
     plan = state["plans"].setdefault(today, [("interest" if rng.random() < .7 else "random") for _ in range(3)])
     today_items = [x for x in state["items"] if x["day"] == today]
-    slot = classic_slot(now, config["timezone"], os.getenv("RSS_SCHEDULE", ""))
-    classic_id_for_slot = f"classic:{today}:{slot}"
-    legacy_first = slot == 0 and any(x["id"].startswith("classic:") and not x.get("classic_ids") for x in today_items)
-    if not legacy_first and not any(x["id"] == classic_id_for_slot for x in today_items):
-        classic = classic_item(classics, state, today, slot, rng)
-        if classic:
-            state["items"].append(classic)
+    classic = classic_item(classics, state, today, rng)
+    if classic:
+        state["items"].append(classic)
     candidates = collect(config, now) if any(not any(x["id"] == today + ":" + str(i) for x in today_items) for i in range(3)) else []
+    translation_unavailable = False
     for i, minutes in enumerate((5, 10, 10)):
         item_id = today + ":" + str(i)
         if any(x["id"] == item_id for x in state["items"]):
@@ -262,8 +274,16 @@ def main():
             ranked += [(c, "fallback") for c in ordered_candidates(
                 [c for c in available if not c["topics"]], "random", config["topics"], rng)]
         for candidate, selection in ranked:
+            if translation_unavailable and candidate["language"] == "en":
+                continue
             try:
                 result = get_article(candidate, minutes)
+            except AuthenticationError:
+                logging.error("翻译 API 认证失败，请检查或更新 TRANSLATION_API_KEY；本次跳过英文文章")
+                translation_unavailable = True
+                continue
+            except HostRateLimited:
+                continue
             except (requests.RequestException, APIError, ValueError, KeyError, IndexError, TypeError) as exc:
                 logging.warning("文章处理失败 %s: %s", candidate["link"], exc)
                 continue
