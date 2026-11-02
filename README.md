@@ -8,7 +8,7 @@
 
 1. 把这个目录上传到你的 GitHub **公开仓库**，确保 .github/workflows/daily.yml 也在仓库中。
 2. 仓库 Settings → Pages → Build and deployment → Source 选择 **GitHub Actions**。Settings → Actions → General 中允许工作流读写仓库。
-3. 在 Settings → Secrets and variables → Actions 添加 secret：TRANSLATION_API_KEY；添加 variables：TRANSLATION_BASE_URL（兼容 Chat Completions 的 API 基础地址，例如服务商的 /v1 地址）、TRANSLATION_MODEL（该服务的模型名）。可选添加 FEED_SITE_URL，填 Pages 站点 URL。不要把密钥写进仓库。
+3. 在 Settings → Environments 的 `TRANSLATION_API_KEY` 环境中添加 secret：TRANSLATION_API_KEY；添加 variables：TRANSLATION_BASE_URL（兼容 Chat Completions 的 API 基础地址，例如 DeepSeek 的 https://api.deepseek.com）、TRANSLATION_MODEL（该服务的模型名）。也可以使用仓库级 Actions secrets 和 variables。可选添加 FEED_SITE_URL，填 Pages 站点 URL。不要把密钥写进仓库。
 4. 编辑 config.json，添加足够多授权允许公开全文及译文的 RSS 来源、对应语言和 allow_full_republish。示例来源只是待审核候选，并未断言其授权许可或保证链接可用。每个来源须设置 name、url、language（en 或 zh）、allow_full_republish。
 5. 在 Actions 页面选择“每日阅读”，点击 Run workflow。成功后订阅 `https://你的用户名.github.io/仓库名/feed.xml`。用户名、仓库名及具体页面地址以 GitHub Pages 设置显示为准。此 URL 及内容是公开的。
 

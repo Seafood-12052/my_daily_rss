@@ -15,6 +15,7 @@ concurrency:
 jobs:
   generate:
     runs-on: ubuntu-latest
+    environment: TRANSLATION_API_KEY
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
