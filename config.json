@@ -1,6 +1,7 @@
 {
   "title": "我的每日随机阅读",
   "timezone": "Asia/Shanghai",
+  "site_url": "https://seafood-12052.github.io/my_daily_rss/",
   "days_retained": 30,
   "topics": {
     "Obsidian": ["obsidian", "双向链接", "知识管理", "personal knowledge management"],
@@ -19,6 +20,14 @@
     {"name": "Obsidian", "url": "https://obsidian.md/blog/rss.xml", "language": "en", "allow_full_republish": false},
     {"name": "OpenAI", "url": "https://openai.com/news/rss.xml", "language": "en", "allow_full_republish": false},
     {"name": "arXiv 机器学习", "url": "https://rss.arxiv.org/rss/cs.LG", "language": "en", "allow_full_republish": false},
-    {"name": "USNI News", "url": "https://news.usni.org/feed/", "language": "en", "allow_full_republish": true}
+    {"name": "USNI News", "url": "https://news.usni.org/feed/", "language": "en", "allow_full_republish": true},
+    {"name": "Simon Willison 长文", "url": "https://simonwillison.net/atom/entries/", "language": "en", "allow_full_republish": false},
+    {"name": "Hugging Face Blog", "url": "https://huggingface.co/blog/feed.xml", "language": "en", "allow_full_republish": false},
+    {"name": "Google DeepMind", "url": "https://deepmind.google/blog/rss.xml", "language": "en", "allow_full_republish": false},
+    {"name": "BAIR Blog", "url": "https://bair.berkeley.edu/blog/feed.xml", "language": "en", "allow_full_republish": false},
+    {"name": "Lilian Weng · Lil’Log", "url": "https://lilianweng.github.io/index.xml", "language": "en", "allow_full_republish": false},
+    {"name": "Steph Ango / Kepano", "url": "https://stephango.com/feed.xml", "language": "en", "allow_full_republish": false},
+    {"name": "CIMSEC", "url": "https://cimsec.org/feed/", "language": "en", "allow_full_republish": false},
+    {"name": "C4ISRNET", "url": "https://www.c4isrnet.com/arc/outboundfeeds/rss/?outputType=xml", "language": "en", "allow_full_republish": false}
   ]
 }

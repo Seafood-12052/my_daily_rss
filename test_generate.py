@@ -63,20 +63,64 @@ class FeedTests(unittest.TestCase):
         self.assertNotEqual(item["id"], repeated["id"])
         self.assertIn("A", repeated["title"])
 
-    def test_actual_classic_library_has_long_annotated_passages(self):
+    def test_actual_classic_library_has_annotated_chapters(self):
         classics = g.load(g.ROOT / "classics.json", [])
-        self.assertGreaterEqual(len(classics), 3)
+        self.assertTrue({"春秋", "汉书"}.issubset({item["book"] for item in classics}))
         for item in classics:
-            self.assertGreaterEqual(len(item["text"]), 600)
+            self.assertTrue(item["text"].strip())
+            self.assertTrue(item["notes"])
             self.assertTrue(item["summary"])
             self.assertTrue(all(term in item["text"] for term, _ in item["notes"]))
+
+    def test_short_chapters_stay_whole_and_long_chapters_are_balanced(self):
+        classics = g.load(g.ROOT / "classics.json", [])
+        for chapter in classics:
+            segments = g.classic_segments(chapter)
+            self.assertTrue(segments)
+            total = len(g.re.findall(r"[\u3400-\u9fff]", chapter["text"]))
+            counts = [len(g.re.findall(r"[\u3400-\u9fff]", segment["text"])) for segment in segments]
+            self.assertEqual(sum(counts), total)
+            self.assertEqual(
+                "".join(segment["text"] for segment in segments).replace("\n", ""),
+                chapter["text"].replace("\n", ""),
+            )
+            if total <= 400:
+                self.assertEqual(len(segments), 1, chapter["title"])
+                self.assertEqual(segments[0]["text"], chapter["text"])
+            else:
+                self.assertGreater(len(segments), 1, chapter["title"])
+                self.assertLessEqual(max(counts) - min(counts), 60, chapter["title"])
+        yijing = [item for item in classics if item["book"] == "周易"]
+        self.assertEqual([item["title"] for item in yijing], [
+            "系辞上：第一章", "系辞上：第二章", "系辞上：第三章", "系辞上：第四章"])
+        sushu = [item for item in classics if item["title"] in ("遵义章第五", "安礼章第六")]
+        self.assertEqual(len(sushu), 2)
+        self.assertEqual(sum(len(g.classic_segments(chapter)) for chapter in sushu), 3)
+
+    def test_short_chapter_below_old_minimum_can_be_selected(self):
+        chapter = {"book": "Test", "title": "short", "text": "善不積不足以成名。",
+                   "notes": [["積", "积累。"]], "summary": "论积累。", "source": "https://example.org"}
+        item = g.classic_item([chapter], {"items": [], "classic_seen": []}, "2026-11-03", random.Random(1))
+        self.assertIsNotNone(item)
+        self.assertIn(chapter["text"], item["body"])
+        self.assertNotIn("（1/", item["title"])
+
+    def test_long_chapter_can_have_three_parts_and_selection_stays_random(self):
+        from unittest.mock import Mock
+        chapter = {"book": "Test", "title": "long", "text": "學而時習之。" * 180,
+                   "notes": [["習", "温习。"]], "summary": "论学习。", "source": "https://example.org"}
+        self.assertEqual(len(g.classic_segments(chapter)), 3)
+        rng = Mock()
+        rng.choice.side_effect = lambda choices: choices[-1]
+        item = g.classic_item([chapter], {"items": [], "classic_seen": []}, "2026-11-03", rng)
+        self.assertIn("（3/3）", item["title"])
 
     def test_three_daily_classic_passages_are_short_and_do_not_repeat(self):
         classics = g.load(g.ROOT / "classics.json", [])
         segments = {s["segment_id"]: s for item in classics for s in g.classic_segments(item)}
         for segment in segments.values():
             count = len(g.re.findall(r"[\u3400-\u9fff]", segment["text"]))
-            self.assertGreaterEqual(count, 200)
+            self.assertGreater(count, 0)
             self.assertLessEqual(count, 400)
         for seed in range(30):
             state = {"items": [], "classic_seen": []}
@@ -199,6 +243,46 @@ class FeedTests(unittest.TestCase):
                 self.assertEqual(items[0].findtext("guid"), "new")
             finally:
                 g.OUT = previous
+
+    def test_classic_parts_have_distinct_reading_pages_with_only_their_own_body(self):
+        import xml.etree.ElementTree as ET
+        now = dt.datetime(2026, 11, 3, tzinfo=dt.timezone.utc)
+        source = "https://example.org/original-chapter"
+        rows = [
+            {"id": "classic:part-one", "day": "2026-11-03", "title": "古籍｜测试（1/2）",
+             "link": source, "body": '<h2>第一段</h2><p>只有第一段的原文。</p><p><a href="' + source + '">原文出处</a></p>',
+             "timestamp": now.isoformat()},
+            {"id": "classic:part-two", "day": "2026-11-03", "title": "古籍｜测试（2/2）",
+             "link": source, "body": '<h2>第二段</h2><p>只有第二段的原文。</p><p><a href="' + source + '">原文出处</a></p>',
+             "timestamp": now.isoformat()},
+        ]
+        with tempfile.TemporaryDirectory(dir=Path(__file__).resolve().parent) as folder:
+            root = Path(folder)
+            config = {"title": "阅读", "site_url": "https://reader.example/project/"}
+            with patch.object(g, "OUT", root), patch.dict(g.os.environ, {"FEED_SITE_URL": ""}):
+                g.render(config, {"items": rows}, now)
+                items = ET.parse(root / "feed.xml").findall("./channel/item")
+                links = [item.findtext("link") for item in items]
+                self.assertEqual(len(set(links)), 2)
+                expected_bodies = {row["id"]: row["body"] for row in rows}
+                for item in items:
+                    link = item.findtext("link")
+                    self.assertTrue(link.startswith("https://reader.example/project/classics/"))
+                    body = expected_bodies[item.findtext("guid")]
+                    page = (root / "classics" / link.rsplit("/", 1)[1]).read_text(encoding="utf-8")
+                    self.assertIn(body, page)
+                    self.assertEqual(item.findtext("description"), body)
+                    self.assertEqual(item.findtext("{" + g.CONTENT_NAMESPACE + "}encoded"), body)
+                    other_body = next(value for value in expected_bodies.values() if value != body)
+                    self.assertNotIn(other_body, page)
+                # 重新渲染不改变条目身份、链接，也不覆写保存的原文地址。
+                g.render(config, {"items": rows}, now)
+                self.assertEqual([item.findtext("link") for item in ET.parse(root / "feed.xml").findall("./channel/item")], links)
+                self.assertTrue(all(row["link"] == source for row in rows))
+                with patch.dict(g.os.environ, {"FEED_SITE_URL": "https://custom.example/read/"}):
+                    g.render(config, {"items": rows}, now)
+                self.assertTrue(all(item.findtext("link").startswith("https://custom.example/read/classics/")
+                                    for item in ET.parse(root / "feed.xml").findall("./channel/item")))
 
 
 if __name__ == "__main__":
