@@ -2,9 +2,11 @@ name: 每日阅读
 on:
   workflow_dispatch:
   schedule:
-    - cron: '17 22 * * *'
-    - cron: '17 04 * * *'
-    - cron: '17 10 * * *'
+    # UTC 时间，分别对应北京时间 05:00、10:00、15:00、20:00。
+    - cron: '0 21 * * *'
+    - cron: '0 2 * * *'
+    - cron: '0 7 * * *'
+    - cron: '0 12 * * *'
 permissions:
   contents: write
   pages: write
@@ -18,6 +20,9 @@ jobs:
     environment: TRANSLATION_API_KEY
     steps:
       - uses: actions/checkout@v4
+        with:
+          # 排队及重跑时读取最新状态，避免从旧提交再次生成同一时段。
+          ref: ${{ github.event.repository.default_branch }}
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -30,6 +35,7 @@ jobs:
           TRANSLATION_BASE_URL: ${{ vars.TRANSLATION_BASE_URL }}
           TRANSLATION_MODEL: ${{ vars.TRANSLATION_MODEL }}
           FEED_SITE_URL: ${{ vars.FEED_SITE_URL }}
+          READING_SCHEDULE: ${{ github.event.schedule }}
       - name: 保存去重与抽签状态
         run: |
           git config user.name "github-actions[bot]"

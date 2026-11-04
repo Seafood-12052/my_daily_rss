@@ -32,6 +32,9 @@ RATE_LIMITED_HOSTS = set()
 CLASSIC_WHOLE_CHAPTER_LIMIT = 400
 CLASSIC_TARGET_CHARS = 300
 CONTENT_NAMESPACE = "http://purl.org/rss/1.0/modules/content/"
+# 北京时间的四个阅读时段；文章沿用早间 5 分钟、其余时段 10 分钟。
+READING_SLOTS = {5: 5, 10: 10, 15: 10, 20: 10}
+SCHEDULE_HOURS = {"0 21 * * *": 5, "0 2 * * *": 10, "0 7 * * *": 15, "0 12 * * *": 20}
 
 
 class HostRateLimited(Exception):
@@ -396,116 +399,119 @@ def render(config, state, now):
     ET.ElementTree(rss).write(OUT / "feed.xml", encoding="utf-8", xml_declaration=True)
 
 
-def add_daily_articles(config, state, now, today, plan, today_items, rng):
-    """填充当天缺失的三个文章位置；已发布位置和已读链接不再重复。"""
-    missing_slots = any(
-        not any(item["id"] == today + ":" + str(i) for item in today_items)
-        for i in range(3)
-    )
-    candidates = collect(config, now) if missing_slots else []
-    translation_unavailable = False
-    for i, minutes in enumerate((5, 10, 10)):
-        item_id = today + ":" + str(i)
-        if any(x["id"] == item_id for x in state["items"]):
-            continue
-        available = [c for c in candidates if c["link"] not in state["seen"]]
-        ranked = [
-            (c, plan[i])
-            for c in ordered_candidates(available, plan[i], config["topics"], rng)
+def reading_slot(now, timezone, schedule=""):
+    """定时任务认领触发它的时段；手动运行只处理今天最近的已到时段。"""
+    local_now = now.astimezone(ZoneInfo(timezone))
+    if schedule:
+        if schedule not in SCHEDULE_HOURS:
+            raise ValueError("未知定时计划：" + schedule)
+        hour = SCHEDULE_HOURS[schedule]
+        scheduled = local_now.replace(hour=hour, minute=0, second=0, microsecond=0)
+        if scheduled > local_now:
+            # 例如 20 点的任务因排队在次日凌晨执行，仍属于前一日。
+            scheduled -= dt.timedelta(days=1)
+    else:
+        elapsed = [hour for hour in READING_SLOTS if hour <= local_now.hour]
+        if not elapsed:
+            return None
+        hour = max(elapsed)
+        scheduled = local_now.replace(hour=hour, minute=0, second=0, microsecond=0)
+    return scheduled.date().isoformat(), f"{hour:02d}:00", READING_SLOTS[hour]
+
+
+def add_slot_article(config, state, now, day, slot, minutes, plan, rng):
+    """只补当前时段的一篇文章；不提前生成其他时段的文章。"""
+    item_id = f"article:{day}:{slot}"
+    if any(item["id"] == item_id for item in state["items"]):
+        logging.info("%s %s 文章已生成，跳过", day, slot)
+        return
+    candidates = collect(config, now)
+    available = [c for c in candidates if c["link"] not in state["seen"]]
+    ranked = [(c, plan) for c in ordered_candidates(available, plan, config["topics"], rng)]
+    if plan == "interest":
+        ranked += [
+            (c, "fallback")
+            for c in ordered_candidates(
+                [c for c in available if not c["topics"]], "random", config["topics"], rng
+            )
         ]
-        if plan[i] == "interest":
-            # 兴趣候选均不合格时，才依次尝试其他随机文章。
-            ranked += [
-                (c, "fallback")
-                for c in ordered_candidates(
-                    [c for c in available if not c["topics"]],
-                    "random",
-                    config["topics"],
-                    rng,
-                )
-            ]
-        for candidate, selection in ranked:
-            if translation_unavailable and candidate["language"] == "en":
-                continue
-            try:
-                result = get_article(candidate, minutes)
-            except AuthenticationError:
-                # 密钥错误与文章无关；本次运行不再重复发送英文翻译请求。
-                logging.error(
-                    "翻译 API 认证失败，请检查或更新 TRANSLATION_API_KEY；本次跳过英文文章"
-                )
-                translation_unavailable = True
-                continue
-            except HostRateLimited:
-                continue
-            except (
-                requests.RequestException,
-                APIError,
-                ValueError,
-                KeyError,
-                IndexError,
-                TypeError,
-            ) as exc:
-                logging.warning("文章处理失败 %s: %s", candidate["link"], exc)
-                continue
-            if not result:
-                continue
-            title, body = result
-            paragraphs = "".join(
-                "<p>" + html.escape(p) + "</p>"
-                for p in re.split(r"\n\s*\n", body)
-                if p.strip()
-            )
-            category = {
-                "interest": "兴趣领域",
-                "random": "随机发现",
-                "fallback": "随机发现（兴趣候选不足）",
-            }[selection]
-            meta = (
-                f"{candidate['source']} · {candidate['when'].date().isoformat()} · 约{minutes}分钟 · "
-                + category
-            )
-            state["items"].append(
-                {
-                    "id": item_id,
-                    "day": today,
-                    "title": title,
-                    "link": candidate["link"],
-                    "body": "<p>" + html.escape(meta) + "</p>" + paragraphs,
-                    "timestamp": now.isoformat(),
-                }
-            )
-            state["seen"].append(candidate["link"])
-            break
-        else:
-            logging.warning(
-                "今天第 %s 篇暂时没有合适候选（%s 分钟，%s）", i + 1, minutes, plan[i]
-            )
+    translation_unavailable = False
+    for candidate, selection in ranked:
+        if translation_unavailable and candidate["language"] == "en":
+            continue
+        try:
+            result = get_article(candidate, minutes)
+        except AuthenticationError:
+            logging.error("翻译 API 认证失败，请检查或更新 TRANSLATION_API_KEY；本次跳过英文文章")
+            translation_unavailable = True
+            continue
+        except HostRateLimited:
+            continue
+        except (requests.RequestException, APIError, ValueError, KeyError, IndexError, TypeError) as exc:
+            logging.warning("文章处理失败 %s: %s", candidate["link"], exc)
+            continue
+        if not result:
+            continue
+        title, body = result
+        paragraphs = "".join(
+            "<p>" + html.escape(p) + "</p>"
+            for p in re.split(r"\n\s*\n", body) if p.strip()
+        )
+        category = {
+            "interest": "兴趣领域", "random": "随机发现", "fallback": "随机发现（兴趣候选不足）"
+        }[selection]
+        meta = (
+            f"{candidate['source']} · {candidate['when'].date().isoformat()} · 约{minutes}分钟 · "
+            + category
+        )
+        state["items"].append({
+            "id": item_id, "day": day, "slot": slot,
+            "title": title, "link": candidate["link"],
+            "body": "<p>" + html.escape(meta) + "</p>" + paragraphs,
+            "timestamp": now.isoformat(),
+        })
+        state["seen"].append(candidate["link"])
+        logging.info("%s %s 新增文章：%s", day, slot, title)
+        return
+    logging.warning("%s %s 文章暂缺：没有合适候选或正文提取/翻译失败（约 %s 分钟）", day, slot, minutes)
 
 
-def main():
-    """加载状态，抽取古文和缺失文章，然后保存状态并输出 RSS。"""
+def main(now=None):
+    """每个时段最多新增一篇古文和一篇文章，重复运行只重试缺项。"""
     RATE_LIMITED_HOSTS.clear()
     config = load(ROOT / "config.json", {})
     classics = load(ROOT / "classics.json", [])
-    state = load(STATE, {"items": [], "seen": [], "classic_seen": [], "plans": {}})
-    now = dt.datetime.now(UTC)
-    today = now.astimezone(ZoneInfo(config["timezone"])).date().isoformat()
+    state = load(STATE, {"items": [], "seen": [], "classic_seen": []})
+    now = now or dt.datetime.now(UTC)
     rng = random.SystemRandom()
-
-    # 每日文章计划持久化，后续运行只补缺；古文则每次运行都新增。
-    plan = state["plans"].setdefault(
-        today, [("interest" if rng.random() < 0.7 else "random") for _ in range(3)]
-    )
-    today_items = [item for item in state["items"] if item["day"] == today]
-    classic = classic_item(classics, state, today, rng)
-    if classic:
-        state["items"].append(classic)
-    add_daily_articles(config, state, now, today, plan, today_items, rng)
+    slot = reading_slot(now, config["timezone"], os.getenv("READING_SCHEDULE", "").strip())
+    before = len(state["items"])
+    if slot is None:
+        logging.info("尚未到今天 05:00 的首个阅读时段，仅更新 RSS")
+    else:
+        day, label, minutes = slot
+        logging.info("本次处理 %s %s（%s）", day, label, config["timezone"])
+        # 新时段计划独立保存，兼容旧版 plans 中每日三个位置的历史记录。
+        plans = state.setdefault("slot_plans", {})
+        plan_key = f"{day}:{label}"
+        if plan_key not in plans:
+            plans[plan_key] = "interest" if rng.random() < 0.7 else "random"
+        classic_id_for_slot = f"classic:{day}:{label}"
+        if any(item["id"] == classic_id_for_slot for item in state["items"]):
+            logging.info("%s %s 古文已生成，跳过", day, label)
+        else:
+            classic = classic_item(classics, state, day, rng)
+            if classic:
+                classic.update(id=classic_id_for_slot, slot=label, timestamp=now.isoformat())
+                state["items"].append(classic)
+                logging.info("%s %s 新增古文：%s", day, label, classic["title"])
+        add_slot_article(config, state, now, day, label, minutes, plans[plan_key], rng)
 
     STATE.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
     render(config, state, now)
-    logging.info("生成 %s", OUT / "feed.xml")
+    added = state["items"][before:]
+    classic_count = sum(item["id"].startswith("classic:") for item in added)
+    logging.info("本次新增 %s 篇古文、%s 篇文章；生成 %s", classic_count, len(added) - classic_count, OUT / "feed.xml")
 
 
 if __name__ == "__main__":

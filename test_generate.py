@@ -115,7 +115,7 @@ class FeedTests(unittest.TestCase):
         item = g.classic_item([chapter], {"items": [], "classic_seen": []}, "2026-11-03", rng)
         self.assertIn("（3/3）", item["title"])
 
-    def test_three_daily_classic_passages_are_short_and_do_not_repeat(self):
+    def test_four_daily_classic_passages_are_short_and_do_not_repeat(self):
         classics = g.load(g.ROOT / "classics.json", [])
         segments = {s["segment_id"]: s for item in classics for s in g.classic_segments(item)}
         for segment in segments.values():
@@ -124,7 +124,7 @@ class FeedTests(unittest.TestCase):
             self.assertLessEqual(count, 400)
         for seed in range(30):
             state = {"items": [], "classic_seen": []}
-            for slot in range(3):
+            for slot in range(4):
                 item = g.classic_item(classics, state, "2026-11-02", random.Random(seed + slot))
                 self.assertIsNotNone(item)
                 self.assertEqual(len(item["classic_ids"]), 1)
@@ -165,7 +165,7 @@ class FeedTests(unittest.TestCase):
         self.assertEqual(session.get.call_count, 1)
 
     def test_invalid_translation_key_skips_further_english_but_saves_classic(self):
-        now = dt.datetime.now(dt.timezone.utc)
+        now = dt.datetime(2026, 11, 4, 2, tzinfo=dt.timezone.utc)
         candidates = [{"topics": [], "age": 1, "link": f"https://example.org/{i}",
                        "title": "Title", "source": "Example", "language": "en", "when": now}
                       for i in range(3)]
@@ -174,13 +174,19 @@ class FeedTests(unittest.TestCase):
             (root / "config.json").write_text(g.json.dumps({"title": "Test", "timezone": "Asia/Shanghai",
                 "topics": {}, "sources": []}), encoding="utf-8")
             (root / "classics.json").write_text((g.ROOT / "classics.json").read_text(encoding="utf-8"), encoding="utf-8")
-            with patch.object(g, "ROOT", root), patch.object(g, "STATE", root / "state.json"), \
+            with patch.dict(g.os.environ, {"READING_SCHEDULE": ""}), patch.object(g, "ROOT", root), patch.object(g, "STATE", root / "state.json"), \
                  patch.object(g, "OUT", root / "public"), patch.object(g, "collect", return_value=candidates), \
                  patch.object(g, "get_article", side_effect=g.AuthenticationError("invalid")) as get_article:
-                g.main()
+                g.main(now=now)
                 self.assertEqual(get_article.call_count, 1)
                 self.assertEqual(len(g.load(root / "state.json", {})["items"]), 1)
                 self.assertTrue((root / "public" / "feed.xml").exists())
+                # 修复翻译后只补文章，不能重复生成已成功的古文。
+                with patch.object(g, "get_article", return_value=("译文标题", "译文正文")):
+                    g.main(now=now)
+                saved = g.load(root / "state.json", {})
+                self.assertEqual(len(saved["items"]), 2)
+                self.assertEqual(sum(item["id"].startswith("classic:") for item in saved["items"]), 1)
 
     def test_interest_search_tries_other_matching_topics(self):
         candidates = [
@@ -191,36 +197,116 @@ class FeedTests(unittest.TestCase):
         found = g.ordered_candidates(candidates, "interest", {"A": [], "B": []}, random.Random(1))
         self.assertEqual({c["link"] for c in found}, {"a", "b"})
 
-    def test_run_fills_missing_slots_and_retries_without_duplicates(self):
-        now = dt.datetime.now(dt.timezone.utc)
-        today = now.astimezone(g.ZoneInfo("Asia/Shanghai")).date().isoformat()
+    def test_four_slots_generate_one_pair_each_and_reruns_do_not_duplicate(self):
+        today = "2026-11-04"
+        zone = g.ZoneInfo("Asia/Shanghai")
+        now = dt.datetime(2026, 11, 4, 5, tzinfo=zone)
         classics = g.load(g.ROOT / "classics.json", [])
         candidates = [
-            {"topics": ["AI"] if i == 0 else [], "age": 1, "link": f"https://example.org/{i}",
+            {"topics": [], "age": 1, "link": f"https://example.org/{i}",
              "title": f"Title {i}", "source": "Example", "language": "zh", "when": now}
-            for i in range(3)
+            for i in range(8)
         ]
         with tempfile.TemporaryDirectory(dir=Path(__file__).resolve().parent) as folder:
             root = Path(folder)
             (root / "config.json").write_text(g.json.dumps({"title": "Test", "timezone": "Asia/Shanghai",
                 "topics": {"AI": []}, "sources": []}), encoding="utf-8")
             (root / "classics.json").write_text(g.json.dumps(classics, ensure_ascii=False), encoding="utf-8")
-            state = {"items": [], "seen": [], "classic_seen": [], "plans": {today: ["interest"] * 3}}
+            # 保留旧版每日三个文章位置的计划，不能让它阻止新增四个时段。
+            state = {"items": [], "seen": [], "classic_seen": [], "plans": {today: ["interest"] * 3},
+                     "slot_plans": {f"{today}:{hour:02d}:00": "interest" for hour in (5, 10, 15, 20)}}
             (root / "state.json").write_text(g.json.dumps(state), encoding="utf-8")
-            with patch.object(g, "ROOT", root), patch.object(g, "STATE", root / "state.json"), \
-                 patch.object(g, "OUT", root / "public"), patch.object(g, "collect", return_value=candidates), \
-                 patch.object(g, "get_article", side_effect=lambda c, m: (c["title"], "正文")):
-                g.main()
-                g.main()
-                g.main()
-                g.main()
-                g.main()
+            with patch.dict(g.os.environ, {"READING_SCHEDULE": ""}), \
+                 patch.object(g, "ROOT", root), patch.object(g, "STATE", root / "state.json"), \
+                 patch.object(g, "OUT", root / "public"), patch.object(g, "collect", return_value=candidates) as collect, \
+                 patch.object(g, "get_article", side_effect=lambda c, m: (c["title"], "正文")) as article:
+                g.main(now=now.replace(hour=1, minute=50))
+                self.assertEqual(g.load(root / "state.json", {})["items"], [])
+                collect.assert_not_called()
+                for count, hour in enumerate((5, 10, 15, 20), 1):
+                    instant = now.replace(hour=hour)
+                    with self.assertLogs(level="INFO") as logs:
+                        g.main(now=instant)
+                    self.assertTrue(any("本次新增 1 篇古文、1 篇文章" in line for line in logs.output))
+                    saved = g.load(root / "state.json", {})
+                    self.assertEqual(len(saved["items"]), count * 2)
+                    current = [item for item in saved["items"] if item["slot"] == f"{hour:02d}:00"]
+                    self.assertEqual(len(current), 2)
+                    self.assertEqual(sum(item["id"].startswith("classic:") for item in current), 1)
+                    # 同一时段重复运行，正文、GUID、阅读历史和抽签结果都应稳定。
+                    g.main(now=instant + dt.timedelta(minutes=10))
+                    self.assertEqual(g.load(root / "state.json", {}), saved)
+                self.assertEqual(collect.call_count, 4)
+                self.assertEqual([call.args[1] for call in article.call_args_list], [5, 10, 10, 10])
+                self.assertEqual(len(saved["seen"]), 4)
+                self.assertEqual(len(set(saved["seen"])), 4)
+                self.assertTrue(any("兴趣候选不足" in item["body"] for item in saved["items"]))
+                self.assertEqual(saved["plans"], state["plans"])
+                g.main(now=now + dt.timedelta(days=1))
+                newest = g.load(root / "state.json", {})["items"][-2:]
+                self.assertTrue(all(item["day"] == "2026-11-05" and item["slot"] == "05:00" for item in newest))
+                self.assertFalse({item["id"] for item in newest}.intersection(item["id"] for item in saved["items"]))
+
+    def test_only_current_slot_is_filled_and_retry_handles_missing_classic(self):
+        now = dt.datetime(2026, 11, 4, 15, 5, tzinfo=g.ZoneInfo("Asia/Shanghai"))
+        classics = g.load(g.ROOT / "classics.json", [])
+        candidate = {"topics": [], "age": 1, "link": "https://example.org/a", "title": "Title",
+                     "source": "Example", "language": "zh", "when": now}
+        with tempfile.TemporaryDirectory(dir=Path(__file__).resolve().parent) as folder:
+            root = Path(folder)
+            (root / "config.json").write_text(g.json.dumps({"title": "Test", "timezone": "Asia/Shanghai",
+                "topics": {}, "sources": []}), encoding="utf-8")
+            (root / "classics.json").write_text("[]", encoding="utf-8")
+            with patch.dict(g.os.environ, {"READING_SCHEDULE": ""}), \
+                 patch.object(g, "ROOT", root), patch.object(g, "STATE", root / "state.json"), \
+                 patch.object(g, "OUT", root / "public"), patch.object(g, "collect", return_value=[candidate]) as collect, \
+                 patch.object(g, "get_article", return_value=("Title", "正文")):
+                g.main(now=now)
                 saved = g.load(root / "state.json", {})
-                self.assertEqual(len(saved["items"]), 8)
-                classics_saved = [item for item in saved["items"] if item["id"].startswith("classic:")]
-                self.assertEqual(len({item["id"] for item in classics_saved}), 5)
-                self.assertEqual(len(saved["seen"]), 3)
-                self.assertTrue(any("兴趣候选不足" in x["body"] for x in saved["items"]))
+                self.assertEqual([row["id"] for row in saved["items"]], ["article:2026-11-04:15:00"])
+                self.assertEqual(list(saved["slot_plans"]), ["2026-11-04:15:00"])
+                (root / "classics.json").write_text(g.json.dumps(classics, ensure_ascii=False), encoding="utf-8")
+                g.main(now=now)
+                saved = g.load(root / "state.json", {})
+                self.assertEqual(len(saved["items"]), 2)
+                self.assertTrue(all(row["slot"] == "15:00" for row in saved["items"]))
+                self.assertEqual(collect.call_count, 1)
+
+    def test_schedule_timezone_boundaries_and_delayed_jobs(self):
+        zone = g.ZoneInfo("Asia/Shanghai")
+        for hour in (5, 10, 15, 20):
+            instant = dt.datetime(2026, 11, 4, hour, tzinfo=zone)
+            slot = g.reading_slot(instant.astimezone(dt.timezone.utc), "Asia/Shanghai")
+            self.assertEqual(slot[:2], ("2026-11-04", f"{hour:02d}:00"))
+            before = g.reading_slot(instant - dt.timedelta(seconds=1), "Asia/Shanghai")
+            if hour == 5:
+                self.assertIsNone(before)
+            else:
+                self.assertEqual(before[1], f"{hour - 5:02d}:00")
+        # 05 点定时任务延迟到 10 点之后，仍只认领 05 点，不抢占 10 点。
+        self.assertEqual(g.reading_slot(dt.datetime(2026, 11, 4, 10, 30, tzinfo=zone), "Asia/Shanghai", "0 21 * * *")[:2],
+                         ("2026-11-04", "05:00"))
+        self.assertEqual(g.reading_slot(dt.datetime(2026, 11, 5, 0, 30, tzinfo=zone), "Asia/Shanghai", "0 12 * * *")[:2],
+                         ("2026-11-04", "20:00"))
+        self.assertIsNone(g.reading_slot(dt.datetime(2026, 11, 5, 1, 50, tzinfo=zone), "Asia/Shanghai"))
+        with self.assertRaises(ValueError):
+            g.reading_slot(dt.datetime(2026, 11, 4, 10, tzinfo=zone), "Asia/Shanghai", "invalid")
+
+    def test_workflow_crons_match_the_four_beijing_slots(self):
+        workflow = (g.ROOT / ".github" / "workflows" / "daily.yml").read_text(encoding="utf-8")
+        crons = g.re.findall(r"cron: '([^']+)'", workflow)
+        self.assertEqual(len(crons), 4)
+        converted = []
+        for cron in crons:
+            minute, hour, day, month, weekday = cron.split()
+            self.assertEqual((minute, day, month, weekday), ("0", "*", "*", "*"))
+            utc = dt.datetime(2026, 11, 4, int(hour), tzinfo=dt.timezone.utc)
+            local = utc.astimezone(g.ZoneInfo("Asia/Shanghai"))
+            converted.append(local.hour)
+            slot = g.reading_slot(utc, "Asia/Shanghai", cron)
+            self.assertEqual(slot[:2], (local.date().isoformat(), f"{local.hour:02d}:00"))
+        self.assertEqual(sorted(converted), [5, 10, 15, 20])
+        self.assertIn("READING_SCHEDULE: ${{ github.event.schedule }}", workflow)
 
     def test_rss_escapes_and_drops_old_entries(self):
         import xml.etree.ElementTree as ET
