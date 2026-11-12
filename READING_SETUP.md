@@ -9,6 +9,6 @@
 3. 在 Settings → Pages → Build and deployment 中将 Source 设为 GitHub Actions。
 4. 在 Actions 中运行“三次阅读推送”的 workflow_dispatch 测试，成功后订阅 `https://<用户名>.github.io/<仓库名>/feed.xml`。默认定时执行可能受到 GitHub 排队延迟；公开 Pages 的内容可被任何人访问。
 
-无法抓取、无正文、正文超过 24000 字符或翻译失败的文章会跳过；若所有候选均失败，任务报错且不发布。RSS 链接指向原文，部分阅读器可能会自行抓取原网页而不显示 RSS 中的译文。API 调用会产生 DeepSeek 费用。
+先随机选择并抓取一篇可用文章，再调用一次翻译 API；翻译失败时任务报错且不发布。无法抓取、无正文或正文超过 24000 字符的候选会跳过。RSS 条目链接指向含译文和古文的阅读页面，页面内保留原文链接。API 调用会产生 DeepSeek 费用。
 
 本地运行：安装 `reading_requirements.txt` 中的依赖，设置环境变量 `DEEPSEEK_API_KEY`，然后运行 `python reading_feed.py`，生成的文件为 `reading_site/feed.xml`。

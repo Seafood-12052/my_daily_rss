@@ -65,7 +65,7 @@ def generate():
     if not key:
         raise RuntimeError('请设置 DEEPSEEK_API_KEY')
     state = json.loads(STATE.read_text(encoding='utf-8')) if STATE.exists() else {'items': [], 'seen': []}
-    client = OpenAI(api_key=key, base_url='https://api.deepseek.com', timeout=120, max_retries=2)
+    client = OpenAI(api_key=key, base_url='https://api.deepseek.com', timeout=120, max_retries=0)
     for source, title, link in candidates(state['seen']):
         try:
             response = requests.get(link, headers=HEADERS, timeout=30)
@@ -76,19 +76,19 @@ def generate():
             if len(body) > 24000:
                 print(f'正文过长，跳过: {link}')
                 continue
-            result = client.chat.completions.create(model='deepseek-flash', temperature=0.2,
-                extra_body={'thinking': {'type': 'disabled'}},
-                messages=[{'role': 'system', 'content': '请将给定文章标题和正文忠实完整翻译为简体中文，保留段落。只输出 JSON 对象，字段为 title 和 body。若原文已是中文则保留原文。'},
-                          {'role': 'user', 'content': json.dumps({'title': title, 'body': body}, ensure_ascii=False)}],
-                response_format={'type': 'json_object'})
-            translated = json.loads(result.choices[0].message.content)
-            if not all(isinstance(translated.get(k), str) and translated[k].strip() for k in ('title', 'body')):
-                raise ValueError('翻译结果为空')
             break
         except Exception as exc:
-            print(f'文章处理失败 {link}: {exc}')
+            print(f'文章抓取失败 {link}: {exc}')
     else:
-        raise RuntimeError('没有成功提取并翻译文章，本次不发布')
+        raise RuntimeError('没有成功提取文章，本次不发布')
+    result = client.chat.completions.create(model='deepseek-flash', temperature=0.2,
+        extra_body={'thinking': {'type': 'disabled'}},
+        messages=[{'role': 'system', 'content': '请将给定文章标题和正文忠实完整翻译为简体中文，保留段落。只输出 JSON 对象，字段为 title 和 body。若原文已是中文则保留原文。'},
+                  {'role': 'user', 'content': json.dumps({'title': title, 'body': body}, ensure_ascii=False)}],
+        response_format={'type': 'json_object'})
+    translated = json.loads(result.choices[0].message.content)
+    if not all(isinstance(translated.get(k), str) and translated[k].strip() for k in ('title', 'body')):
+        raise ValueError('翻译结果为空')
     book, passage = classic()
     now = dt.datetime.now(dt.timezone.utc)
     item = {'id': hashlib.sha256((link + now.isoformat()).encode()).hexdigest(), 'title': translated['title'],
@@ -103,6 +103,10 @@ def generate():
 
 def render(state):
     site = os.environ.get('FEED_SITE_URL', 'https://github.com/').rstrip('/')
+    OUT.mkdir(exist_ok=True)
+    pages = OUT / 'articles'
+    pages.mkdir(exist_ok=True)
+    ET.register_namespace('content', 'http://purl.org/rss/1.0/modules/content/')
     rss = ET.Element('rss', version='2.0')
     channel = ET.SubElement(rss, 'channel')
     for name, value in [('title', '每日阅读'), ('link', site), ('description', '随机文章译文与古文'), ('language', 'zh-CN')]:
@@ -112,10 +116,17 @@ def render(state):
         content = '<p>来源：' + html.escape(row['source']) + ' · <a href="' + html.escape(row['link'], quote=True) + '">原文</a></p>'
         content += ''.join('<p>' + html.escape(p) + '</p>' for p in re.split(r'\n+', row['body']) if p.strip())
         content += '<h2>古文｜' + html.escape(row['book']) + '</h2>' + ''.join('<p>' + html.escape(p) + '</p>' for p in re.split(r'\n+', row['passage']) if p.strip())
-        for name, value in [('title', row['title']), ('link', row['link']), ('description', content), ('pubDate', email.utils.format_datetime(dt.datetime.fromisoformat(row['date'])))]:
+        page_name = hashlib.sha256(row['id'].encode('utf-8')).hexdigest() + '.html'
+        page = ('<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">'
+                '<meta name="viewport" content="width=device-width,initial-scale=1">'
+                '<title>' + html.escape(row['title']) + '</title>'
+                '<style>body{max-width:46rem;margin:2rem auto;padding:0 1rem;line-height:1.8}a{overflow-wrap:anywhere}</style>'
+                '</head><body><main><article><h1>' + html.escape(row['title']) + '</h1>' + content + '</article></main></body></html>')
+        (pages / page_name).write_text(page, encoding='utf-8')
+        for name, value in [('title', row['title']), ('link', site + '/articles/' + page_name), ('description', content), ('pubDate', email.utils.format_datetime(dt.datetime.fromisoformat(row['date'])))]:
             ET.SubElement(item, name).text = value
+        ET.SubElement(item, '{http://purl.org/rss/1.0/modules/content/}encoded').text = content
         ET.SubElement(item, 'guid', isPermaLink='false').text = row['id']
-    OUT.mkdir(exist_ok=True)
     ET.ElementTree(rss).write(OUT / 'feed.xml', encoding='utf-8', xml_declaration=True)
 
 
