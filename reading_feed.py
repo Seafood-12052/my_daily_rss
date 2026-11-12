@@ -90,11 +90,22 @@ def generate():
     if not all(isinstance(translated.get(k), str) and translated[k].strip() for k in ('title', 'body')):
         raise ValueError('翻译结果为空')
     book, passage = classic()
+    result = client.chat.completions.create(model='deepseek-flash', temperature=0.2,
+        extra_body={'thinking': {'type': 'disabled'}},
+        messages=[{'role': 'system', 'content': '为给定古籍选段提供简明阅读辅助。只输出 JSON 对象，字段为 translation（白话理解）和 notes（重点词语、背景或阅读提示）。忠于提供的文字，不确定处明确说明，不要编造出处；如果选段本身含注释或现代文字，不要将其误作古文。'},
+                  {'role': 'user', 'content': json.dumps({'book': book, 'passage': passage}, ensure_ascii=False)}],
+        response_format={'type': 'json_object'})
+    guide = json.loads(result.choices[0].message.content)
+    if not all(isinstance(guide.get(k), str) and guide[k].strip() for k in ('translation', 'notes')):
+        raise ValueError('古籍阅读辅助为空')
     now = dt.datetime.now(dt.timezone.utc)
-    item = {'id': hashlib.sha256((link + now.isoformat()).encode()).hexdigest(), 'title': translated['title'],
-            'source': source, 'link': link, 'body': translated['body'], 'book': book, 'passage': passage,
-            'date': now.isoformat()}
-    state['items'].append(item)
+    identifier = hashlib.sha256((link + now.isoformat()).encode()).hexdigest()
+    article = {'id': identifier + ':article', 'kind': 'article', 'title': translated['title'],
+               'source': source, 'link': link, 'body': translated['body'], 'date': now.isoformat()}
+    classical = {'id': identifier + ':classic', 'kind': 'classic', 'title': '古籍｜' + book,
+                 'book': book, 'passage': passage, 'translation': guide['translation'],
+                 'notes': guide['notes'], 'date': now.isoformat()}
+    state['items'].extend([article, classical])
     state['items'] = state['items'][-100:]
     state['seen'].append(link)
     STATE.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding='utf-8')
@@ -113,9 +124,17 @@ def render(state):
         ET.SubElement(channel, name).text = value
     for row in reversed(state['items']):
         item = ET.SubElement(channel, 'item')
-        content = '<p>来源：' + html.escape(row['source']) + ' · <a href="' + html.escape(row['link'], quote=True) + '">原文</a></p>'
-        content += ''.join('<p>' + html.escape(p) + '</p>' for p in re.split(r'\n+', row['body']) if p.strip())
-        content += '<h2>古文｜' + html.escape(row['book']) + '</h2>' + ''.join('<p>' + html.escape(p) + '</p>' for p in re.split(r'\n+', row['passage']) if p.strip())
+        def paragraphs(value):
+            return ''.join('<p>' + html.escape(p) + '</p>' for p in re.split(r'\n+', value) if p.strip())
+        content = ''
+        if row.get('kind') != 'classic':
+            content = '<p>来源：' + html.escape(row['source']) + ' · <a href="' + html.escape(row['link'], quote=True) + '">原文</a></p>'
+            content += paragraphs(row['body'])
+        if row.get('kind') != 'article':
+            content += '<h2>古籍选段｜' + html.escape(row['book']) + '</h2>' + paragraphs(row['passage'])
+            if row.get('kind') == 'classic':
+                content += '<h2>白话理解</h2>' + paragraphs(row['translation']) + '<h2>阅读提示</h2>' + paragraphs(row['notes'])
+                content += '<p>白话理解和阅读提示由 AI 生成，仅供参考。</p>'
         page_name = hashlib.sha256(row['id'].encode('utf-8')).hexdigest() + '.html'
         page = ('<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">'
                 '<meta name="viewport" content="width=device-width,initial-scale=1">'
