@@ -1,0 +1,4 @@
+feedparser>=6.0,<7
+requests>=2.31,<3
+trafilatura>=2,<3
+openai>=1,<3

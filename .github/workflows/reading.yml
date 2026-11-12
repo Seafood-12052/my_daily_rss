@@ -1,0 +1,48 @@
+name: 三次阅读推送
+on:
+  workflow_dispatch:
+  schedule:
+    # 北京时间 08:00、13:00、20:00
+    - cron: '0 0,5,12 * * *'
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+concurrency:
+  group: reading-feed
+  cancel-in-progress: false
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r reading_requirements.txt
+      - name: 生成阅读 RSS
+        run: python reading_feed.py
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          FEED_SITE_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/
+      - name: 保存阅读历史
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add reading_history.json
+          git diff --cached --quiet || git commit -m 'Update reading history'
+          git push
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: reading_site
+  deploy:
+    needs: generate
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

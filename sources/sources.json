@@ -1,0 +1,110 @@
+{
+  "meta": {
+    "title": "RSS 源整理清单",
+    "date": "2026-11-12",
+    "note": "英文源为主；标注 no_native_rss 的为替代方案或需自行验证。"
+  },
+  "categories": [
+    {
+      "name": "海军与防务新闻",
+      "feeds": [
+        { "name": "Naval News", "url": "https://www.navalnews.com/category/naval-news/", "rss": null, "note": "基准网站，非RSS，可查找feed入口" },
+        { "name": "USNI News", "rss": "https://news.usni.org/feed", "note": "美国海军学会，海军垂直领域最直接补充" },
+        { "name": "Naval Today", "rss": null, "note": "专注海军行业新闻；官网查找RSS图标" },
+        { "name": "The War Zone (TWZ)", "rss": "https://www.twz.com/feed", "note": "装备与平台深度分析" },
+        { "name": "Breaking Defense", "rss": "https://breakingdefense.com/feed/", "note": "综合防务，时效性强" },
+        { "name": "Defense News", "rss": "https://www.defensenews.com/arc/outboundfeeds/rss/?outputType=xml", "note": "老牌防务新闻" }
+      ]
+    },
+    {
+      "name": "地缘政治与综合资讯",
+      "feeds": [
+        { "name": "Reuters", "rss": "https://www.reuters.com/arc/outboundfeeds/v3/all/?outputType=xml" },
+        { "name": "AP News", "rss": "https://apnews.com/hub/ap-top-news/feed" },
+        { "name": "Foreign Policy", "rss": "https://foreignpolicy.com/feed/" }
+      ]
+    },
+    {
+      "name": "海事与航运",
+      "feeds": [
+        { "name": "gCaptain", "rss": "https://gcaptain.com/feed/" },
+        { "name": "The Maritime Executive", "rss": "https://www.maritime-executive.com/rss" },
+        { "name": "Splash 247", "rss": "https://splash247.com/feed/" }
+      ]
+    },
+    {
+      "name": "网络安全",
+      "feeds": [
+        { "name": "Krebs on Security", "rss": "https://krebsonsecurity.com/feed/" },
+        { "name": "The Hacker News", "rss": "https://feeds.feedburner.com/TheHackersNews" },
+        { "name": "BleepingComputer", "rss": null, "note": "官网查找；常收录于安全RSS列表" }
+      ]
+    },
+    {
+      "name": "航天与航空",
+      "feeds": [
+        { "name": "SpaceNews", "rss": "https://spacenews.com/feed/" },
+        { "name": "NASASpaceflight.com", "rss": "https://www.nasaspaceflight.com/feed/" }
+      ]
+    },
+    {
+      "name": "AI 科技 - 官方与实验室",
+      "feeds": [
+        { "name": "OpenAI News", "rss": "https://openai.com/news/rss.xml" },
+        { "name": "Google DeepMind", "rss": "https://deepmind.google/blog/rss.xml" },
+        { "name": "Hugging Face Blog", "rss": "https://huggingface.co/blog/feed.xml" },
+        { "name": "Google AI (The Keyword)", "rss": "https://blog.google/technology/ai/rss/" }
+      ]
+    },
+    {
+      "name": "AI 科技 - 科技媒体",
+      "feeds": [
+        { "name": "The Verge AI", "rss": "https://www.theverge.com/rss/ai-artificial-intelligence/index.xml" },
+        { "name": "TechCrunch AI", "rss": "https://techcrunch.com/category/artificial-intelligence/feed/" },
+        { "name": "Ars Technica AI", "rss": "https://feeds.arstechnica.com/arstechnica/index", "note": "或用AI专属feed" },
+        { "name": "MIT Technology Review AI", "rss": "https://www.technologyreview.com/topic/artificial-intelligence/feed/" }
+      ]
+    },
+    {
+      "name": "AI 科技 - 深度分析与博客",
+      "feeds": [
+        { "name": "Simon Willison", "rss": "https://simonwillison.net/atom/everything/" },
+        { "name": "Import AI (Jack Clark)", "rss": "https://www.import.ai/feed" },
+        { "name": "Lilian Weng", "rss": "https://lilianweng.github.io/index.xml" }
+      ]
+    },
+    {
+      "name": "学术预印本",
+      "feeds": [
+        { "name": "arXiv cs.AI", "rss": "https://arxiv.org/rss/cs.AI", "note": "更新量大，建议单独分类+关键词过滤" },
+        { "name": "arXiv cs.LG", "rss": "https://arxiv.org/rss/cs.LG" },
+        { "name": "arXiv cs.NE", "rss": "https://arxiv.org/rss/cs.NE", "note": "神经网络方向首选学术源" }
+      ]
+    },
+    {
+      "name": "神经网络补充源",
+      "feeds": [
+        { "name": "Sebastian Raschka", "rss": null, "note": "官网 sebastianraschka.com 查找入口；机器学习/神经网络实现与教学" }
+      ]
+    },
+    {
+      "name": "指控系统与指挥决策（英文）",
+      "note": "此方向无优质原生RSS，以下为替代方案",
+      "feeds": [
+        { "name": "Google News - command and control military", "rss": "https://news.google.com/rss/search?q=%22command+and+control%22+military&hl=en-US&gl=US&ceid=US:en" },
+        { "name": "Google News - CJADC2", "rss": "https://news.google.com/rss/search?q=CJADC2&hl=en-US&gl=US&ceid=US:en" },
+        { "name": "Google News - command decision AI military", "rss": "https://news.google.com/rss/search?q=%22command+decision%22+AI+military&hl=en-US&gl=US&ceid=US:en" },
+        { "name": "Google News - military decision-making AI", "rss": "https://news.google.com/rss/search?q=%22military+decision-making%22+AI&hl=en-US&gl=US&ceid=US:en" },
+        { "name": "RAND 新出版物", "rss": "https://www.rand.org/pubs/new.xml", "note": "总feed，需自行关键词过滤 command and control / C2 / decision" },
+        { "name": "CSIS", "rss": null, "note": "状态不明确，需自行验证官网RSS入口" }
+      ],
+      "unverified": ["CSBA", "CNA（海军分析中心）", "备注：官网未找到可直接订阅的原生RSS地址"]
+    },
+    {
+      "name": "其他AI补充",
+      "feeds": [
+        { "name": "Anthropic（社区替代）", "rss": "https://raw.githubusercontent.com/Olshansk/rss-feeds/main/feeds/feed_anthropic_news.xml", "note": "第三方维护，非官方" }
+      ]
+    }
+  ]
+}
