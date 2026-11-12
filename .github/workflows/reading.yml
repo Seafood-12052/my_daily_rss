@@ -14,6 +14,7 @@ concurrency:
 jobs:
   generate:
     runs-on: ubuntu-latest
+    environment: DEEPSEEK_API_KEY
     steps:
       - uses: actions/checkout@v4
         with:

@@ -5,7 +5,7 @@
 ## 启用
 
 1. 将本目录及 sources 提交并推送到 GitHub 默认分支。
-2. 在仓库 Settings → Secrets and variables → Actions 中新增 repository secret：`DEEPSEEK_API_KEY`。
+2. 在仓库 Settings → Environments 的 `DEEPSEEK_API_KEY` 环境中新增 environment secret：`DEEPSEEK_API_KEY`。也可以使用同名 repository secret。
 3. 在 Settings → Pages → Build and deployment 中将 Source 设为 GitHub Actions。
 4. 在 Actions 中运行“三次阅读推送”的 workflow_dispatch 测试，成功后订阅 `https://<用户名>.github.io/<仓库名>/feed.xml`。默认定时执行可能受到 GitHub 排队延迟；公开 Pages 的内容可被任何人访问。
 
