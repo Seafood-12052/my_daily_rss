@@ -76,7 +76,8 @@ def generate():
             if len(body) > 24000:
                 print(f'正文过长，跳过: {link}')
                 continue
-            result = client.chat.completions.create(model='deepseek-chat', temperature=0.2,
+            result = client.chat.completions.create(model='deepseek-flash', temperature=0.2,
+                extra_body={'thinking': {'type': 'disabled'}},
                 messages=[{'role': 'system', 'content': '请将给定文章标题和正文忠实完整翻译为简体中文，保留段落。只输出 JSON 对象，字段为 title 和 body。若原文已是中文则保留原文。'},
                           {'role': 'user', 'content': json.dumps({'title': title, 'body': body}, ensure_ascii=False)}],
                 response_format={'type': 'json_object'})
