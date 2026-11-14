@@ -95,6 +95,25 @@
       "translation": "亲近女色而疏远贤人的人会昏聩糊涂；让宫中女子（或宠妾）干预公务的人会招致祸乱；把官职私自授给亲信的人会浮华不实（根基虚浮）；欺凌下属而取胜的人会遭受侵害（招致反噬）；名声超过实际的人会损耗（名不副实而自耗）。",
       "notes": "①“女谒”指通过宫中女子（妃嫔、宠妾等）请托干政，即内宠干预公事。②“私人以官”即以私情授官、任人唯亲。③“凌下取胜”指以权势欺压下属来逞强取胜。④“名不胜实”即名声超过实际才德，名不副实。⑤此段为《素书》中列举的几种败亡之兆，句式整齐，每句以“者”字点出行为主体，后一字概括后果（昏、乱、浮、侵、耗）。",
       "date": "2026-11-13T19:23:43.033211+00:00"
+    },
+    {
+      "id": "157c5c214271c2f52756483dc986b8b93199952b1b90f4ae0337f3070147d5b6:article",
+      "kind": "article",
+      "title": "迈向全同态加密的大型语言模型",
+      "source": "Hugging Face Blog",
+      "link": "https://huggingface.co/blog/encrypted-llm",
+      "body": "迈向全同态加密的大型语言模型\n大型语言模型（LLM）最近已被证明是提高许多领域生产力的可靠工具，例如编程、内容创作、文本分析、网络搜索和远程学习。\n大型语言模型对用户隐私的影响\n尽管LLM很有吸引力，但围绕这些模型处理的用户查询的隐私问题依然存在。一方面，利用LLM的强大功能是可取的，但另一方面，存在向LLM服务提供商泄露敏感信息的风险。在某些领域，如医疗保健、金融或法律，这种隐私风险是阻碍因素。\n这个问题的一个可能解决方案是本地部署，即LLM所有者将其模型部署在客户机器上。然而，这不是最优解决方案，因为构建一个LLM可能花费数百万美元（GPT3为460万美元），并且本地部署存在泄露模型知识产权（IP）的风险。\nZama相信您可以两全其美：我们的目标是保护用户的隐私和模型的IP。在这篇博客中，您将看到如何利用Hugging Face transformers库，并让这些模型的部分在加密数据上运行。完整代码可以在这个用例示例中找到。\n全同态加密（FHE）可以解决LLM隐私挑战\nZama应对LLM部署挑战的解决方案是使用全同态加密（FHE），它能够在加密数据上执行函数。可以在保护模型所有者IP的同时维护用户数据的隐私。这个演示表明，在FHE中实现的LLM模型保持了原始模型预测的质量。为此，需要调整Hugging Face transformers库中的GPT2实现，使用Concrete-Python重写推理部分，从而将Python函数转换为它们的FHE等价物。\n图1显示了GPT2架构，它具有重复结构：一系列多头注意力（MHA）层相继应用。每个MHA层使用模型权重投影输入，计算注意力机制，并将注意力的输出重新投影到新的张量中。\n在TFHE中，模型权重和激活用整数表示。非线性函数必须用可编程自举（PBS）操作实现。PBS在加密数据上实现表查找（TLU）操作，同时刷新密文以允许任意计算。不利的一面是，PBS的计算时间主导了线性操作的计算时间。利用这两种类型的操作，您可以用FHE表达LLM计算的任何子部分，甚至整个LLM计算。\n使用FHE实现LLM层\n接下来，您将看到如何加密多头注意力（MHA）块中的单个注意力头。您也可以在这个用例示例中找到完整MHA块的示例。\n图2显示了底层实现的简化概述。客户端在本地开始推理，直到从共享模型中移除的第一层。用户加密中间操作并将它们发送到服务器。服务器应用部分注意力机制，然后将结果返回给客户端，客户端可以解密它们并继续本地推理。\n量化\n首先，为了在加密值上执行模型推理，模型的权重和激活必须被量化并转换为整数。理想的是使用训练后量化，这不需要重新训练模型。过程是实现一个FHE兼容的注意力机制，使用整数和PBS，然后检查对LLM准确性的影响。\n为了评估量化的影响，运行完整的GPT2模型，其中单个LLM头在加密数据上操作。然后，评估在改变权重和激活的量化位数时获得的准确性。\n该图显示4位量化保持了原始准确性的96%。实验使用约80个句子的数据集完成。通过比较原始模型的logits预测与量化头模型的预测来计算指标。\n将FHE应用于Hugging Face GPT2模型\n基于Hugging Face的transformers库，重写您想要加密的模块的前向传递，以包含量化算子。首先加载GPT2LMHeadModel，然后使用QGPT2SingleHeadAttention模块手动替换第一个多头注意力模块，如下所示，构建SingleHeadQGPT2Model实例。完整实现可以在这里找到。\nself.transformer.h[0].attn = QGPT2SingleHeadAttention(config, n_bits=n_bits)\n然后重写前向传递，使得多头注意力机制的第一个头，包括为构建查询、键和值矩阵所做的投影，使用FHE友好的算子执行。以下QGPT2模块可以在这里找到。\nclass SingleHeadAttention(QGPT2):\n    \"\"\"Class representing a single attention head implemented with quantization methods.\"\"\"\n    def run_numpy(self, q_hidden_states: np.ndarray):\n        # Convert the input to a DualArray instance\n        q_x = DualArray(\n            float_array=self.x_calib,\n            int_array=q_hidden_states,\n            quantizer=self.quantizer\n        )\n        # Extract the attention base module name\n        mha_weights_name = f\"transformer.h.{self.layer}.attn.\"\n        # Extract the query, key and value weight and bias values using the proper indices\n        head_0_indices = [\n            list(range(i * self.n_embd, i * self.n_embd + self.head_dim)) \n            for i in range(3)\n        ]\n        q_qkv_weights = ...\n        q_qkv_bias = ...\n        # Apply the first projection in order to extract Q, K and V as a single array\n        q_qkv = q_x.linear(\n            weight=q_qkv_weights,\n            bias=q_qkv_bias,\n            key=f\"attention_qkv_proj_layer_{self.layer}\",\n        )\n        # Extract the queries, keys and vales\n        q_qkv = q_qkv.expand_dims(axis=1, key=f\"unsqueeze_{self.layer}\")\n        q_q, q_k, q_v = q_qkv.enc_split(\n            3, \n            axis=-1, \n            key=f\"qkv_split_layer_{self.layer}\"\n        )\n        # Compute attention mechanism\n        q_y = self.attention(q_q, q_k, q_v)\n        return self.finalize(q_y)\n模型中的其他计算保持浮点、非加密，并预期由客户端在本地执行。\n将预训练权重加载到以这种方式修改的GPT2模型中，然后可以调用generate方法：\nqgpt2_model = SingleHeadQGPT2Model.from_pretrained(\n    \"gpt2_model\", n_bits=4, use_cache=False\n)\noutput_ids = qgpt2_model.generate(input_ids)\n例如，您可以要求量化模型完成短语“Cryptography is a”。在FHE中运行模型时，如果量化精度足够，生成的输出是：\n“Cryptography is a very important part of the security of your computer”\n当量化精度太低时，您会得到：\n“Cryptography is a great way to learn about the world around you”\n编译到FHE\n您现在可以使用以下Concrete-ML代码编译注意力头：\ncircuit_head = qgpt2_model.compile(input_ids)\n运行此代码，您将看到以下打印输出：“Circuit compiled with 8 bit-width”。此配置与FHE兼容，显示了在FHE中执行操作所需的最大位宽。\n复杂性\n在Transformer模型中，计算最密集的操作是注意力机制，它乘以查询、键和值。在FHE中，成本因加密域中乘法的特殊性而加剧。此外，随着序列长度的增加，这些具有挑战性的乘法的数量呈二次方增长。\n对于加密头，长度为6的序列需要11,622次PBS操作。这是首次实验，尚未针对性能进行优化。虽然它可以在几秒钟内运行，但需要相当多的计算能力。幸运的是，硬件将把延迟提高1000倍到10000倍，使事情从CPU上的几分钟变为ASIC上的<100毫秒，一旦它们在几年内可用。有关这些预测的更多信息，请参阅这篇博客文章。\n结论\n大型语言模型是各种用例中的出色辅助工具，但它们的实现对用户隐私提出了重大挑战。在这篇博客中，您看到了朝着让整个LLM在加密数据上工作的第一步，其中模型将完全在云端运行，而用户的隐私将得到完全尊重。\n这一步包括将GPT2等模型中的特定部分转换为FHE领域。此实现利用了transformers库，并允许您评估当模型的一部分在加密数据上运行时对准确性的影响。除了保护用户隐私外，这种方法还允许模型所有者保持其模型的主要部分私有。完整代码可以在这个用例示例中找到。\nZama库Concrete和Concrete-ML（别忘了在GitHub上给仓库加星⭐️💛）允许直接构建ML模型并转换为FHE等价物，以便能够在加密数据上进行计算和预测。\n希望您喜欢这篇文章；欢迎分享您的想法/反馈！",
+      "date": "2026-11-14T05:37:04.217220+00:00"
+    },
+    {
+      "id": "157c5c214271c2f52756483dc986b8b93199952b1b90f4ae0337f3070147d5b6:classic",
+      "kind": "classic",
+      "title": "古籍｜素书",
+      "book": "素书",
+      "passage": "怨在不舍小过，患在不预定谋；福在积善，祸在积恶；饥在贱农，寒在堕织；安在得人，危在失上；富在迎来，贫在弃时。",
+      "translation": "怨恨产生于不肯放过别人的小过失，祸患产生于不预先谋划；福分来自积累善行，灾祸来自积累恶行；饥饿源于轻视农业，寒冷源于荒废纺织；安定在于得到人心，危险在于失去上位者的支持；富足在于迎来（把握）时机，贫穷在于错失时机。",
+      "notes": "1. 舍：放过、宽恕。2. 预定谋：预先谋划。3. 贱农：轻视农业。4. 堕织：荒废纺织。5. 得人：得人心。6. 失上：失去上位者（君主或上级）的信任与支持；一说“上”指在上位者。7. 迎来：迎接、把握到来的时机。8. 弃时：错失时机。9. 此段为《素书》中排比格言，强调因果与人事，阅读时注意各句对仗结构。",
+      "date": "2026-11-14T05:37:04.217220+00:00"
     }
   ],
   "seen": [
@@ -103,6 +122,7 @@
     "https://huggingface.co/blog/bert-inferentia-sagemaker",
     "https://www.anthropic.com/news/100k-context-windows",
     "https://huggingface.co/blog/snowball-fight",
-    "https://huggingface.co/blog/smolvlm2"
+    "https://huggingface.co/blog/smolvlm2",
+    "https://huggingface.co/blog/encrypted-llm"
   ]
 }
