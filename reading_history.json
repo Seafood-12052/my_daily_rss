@@ -190,6 +190,25 @@
       "translation": "道，如果没有志向就不能显现，所以“断绝嗜好、禁止欲望”等话语，都是用来勉励人立志的；志向没有疏漏缺失，就是体悟大道的君子了。",
       "notes": "“道非志弗见”意为道须靠立志才能体认；“绝嗜禁欲”是《素书》中勉人立志的修养语；“渗漏”喻志向有缺失、不专一；“体道”即体悟、践行大道。此段为后人解说语，非《素书》原文。",
       "date": "2026-11-16T05:33:39.614195+00:00"
+    },
+    {
+      "id": "b5099ef819ac1cf6cde2e961afe0058e40908de6cfa1dcfb3ebba1468928279d:article",
+      "kind": "article",
+      "title": "Transformer范式：动态处理与一种新的推理原理",
+      "source": "arXiv cs.AI",
+      "link": "https://arxiv.org/abs/2611.17953",
+      "body": "计算机科学 > 人工智能\n  [提交于2026年11月13日]\n标题：Transformer范式：动态处理与一种新的推理原理\n查看PDF\n            摘要：我们认为，将Transformer革命仅仅理解为深度学习的定量扩展是不充分的，而应视为基于不同推理原理的新范式的出现。我们将Transformer解释为一个系统，其中令牌表示通过参数化变换或变换概念进行转换。在推理过程中，其中一些变换是根据当前输入动态构建的：先前获得的变换首先被调整，然后被应用。在机械结构层面，这种动态处理通过输出-权重互连实现，即一些网络的输出决定其他网络的权重。由此产生的处理模式，我们称之为序列级交互动态并行处理（SIDPP），为解释强烈的提示敏感性提供了一个框架，并开辟了关于可解释性、控制、替代AI架构、神经形态系统以及动态处理可能的生物实现的研究方向。\n    \n附加功能\n当前浏览上下文：\ncs.AI\n参考文献与引用\n    \n    加载中...\n文献与引用工具\n            文献探索器（什么是探索器？）\n          \n            关联论文（什么是关联论文？）\n          \n            Litmaps（什么是Litmaps？）\n          \n            scite智能引用（什么是智能引用？）\n          \n与本文相关的代码、数据和媒体\n            alphaXiv（什么是alphaXiv？）\n          \n            CatalyzeX代码查找器（什么是CatalyzeX？）\n          \n            DagsHub（什么是DagsHub？）\n          \n            Gotit.pub（什么是GotitPub？）\n          \n            Hugging Face（什么是Huggingface？）\n          \n            ScienceCast（什么是ScienceCast？）\n          \n演示\n推荐与搜索工具\n              影响力花朵（什么是影响力花朵？）\n            \n              CORE推荐器（什么是CORE？）\n            \narXivLabs：与社区合作者的实验项目\narXivLabs是一个允许合作者直接在我们的网站上开发和分享新的arXiv功能的框架。\n与arXivLabs合作的个人和组织都认同并接受了我们的价值观：开放、社区、卓越和用户数据隐私。arXiv致力于这些价值观，并且只与遵守这些价值观的合作伙伴合作。\n有关于能为arXiv社区增加价值的项目想法吗？了解更多关于arXivLabs的信息。",
+      "date": "2026-11-16T21:47:05.963568+00:00"
+    },
+    {
+      "id": "b5099ef819ac1cf6cde2e961afe0058e40908de6cfa1dcfb3ebba1468928279d:classic",
+      "kind": "classic",
+      "title": "古籍｜春秋",
+      "book": "春秋",
+      "passage": "桓公十二年\n十有二年春正月。夏六月壬寅，公会杞侯、莒子盟于曲池。秋七月丁亥，公会宋公、燕人盟于谷丘。八月壬辰，陈侯跃卒。公会宋公于虚。冬十有一月，公会宋公于龟。丙戌，公会郑伯，盟于武父。丙戌，卫侯晋卒。十有二月，及郑师伐宋。丁未，战于宋。",
+      "translation": "桓公十二年：十二年春季正月（无记事）。夏季六月壬寅日，鲁桓公与杞侯、莒子在曲池会盟。秋季七月丁亥日，鲁桓公与宋公、燕人在谷丘会盟。八月壬辰日，陈侯跃去世。鲁桓公在虚地与宋公相会。冬季十一月，鲁桓公在龟地与宋公相会。丙戌日，鲁桓公与郑伯相会，在武父会盟。丙戌日，卫侯晋去世。十二月，鲁国与郑国军队一起讨伐宋国。丁未日，在宋国交战。",
+      "notes": "1. 此为《春秋》经文，记事极简，仅书时月日与事件，不含细节评论。\n2. “公”指鲁桓公；“会”为诸侯相见；“盟”为盟誓结约。\n3. 曲池、谷丘、虚、龟、武父皆地名，今地多不可确考。\n4. “陈侯跃”即陈厉公（名跃）；“卫侯晋”即卫宣公（名晋）。\n5. 同一日“丙戌”既记会盟又记卫侯卒，为《春秋》并书二事。\n6. “及郑师伐宋”中“及”表示鲁国参与，与郑国联合出兵；“战于宋”指在宋国境内交战。\n7. 经文首句“十有二年春正月”后无记事，属《春秋》有月无事的常见笔法。",
+      "date": "2026-11-16T21:47:05.963568+00:00"
     }
   ],
   "seen": [
@@ -203,6 +222,7 @@
     "https://huggingface.co/blog/gemma-july-update",
     "https://huggingface.co/blog/SandboxAQ/sair-data-accelerating-drug-discovery-with-ai",
     "https://thehackernews.com/2026/11/new-n-central-exploits-work-against.html",
-    "https://huggingface.co/blog/ibm-research/altk-evolve-consistency"
+    "https://huggingface.co/blog/ibm-research/altk-evolve-consistency",
+    "https://arxiv.org/abs/2611.17953"
   ]
 }
