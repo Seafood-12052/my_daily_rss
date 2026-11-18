@@ -29,16 +29,9 @@ def classic():
     books = [p for p in (ROOT / 'sources').iterdir() if p.is_file() and p.suffix != '.json']
     random.shuffle(books)
     for book in books:
-        chapters = [x.strip() for x in re.split(r'(?m)^\s*---\s*$', book.read_text(encoding='utf-8-sig')) if x.strip()]
-        random.shuffle(chapters)
-        for chapter in chapters:
-            paragraphs = [p.strip() for p in re.split(r'\n\s*\n', chapter) if len(p.strip()) >= 30]
-            if paragraphs:
-                passage = random.choice(paragraphs)
-                if len(passage) > 700:
-                    sentences = re.split(r'(?<=[。！？])', passage)
-                    passage = ''.join(sentences[:max(1, next((i for i, _ in enumerate(sentences) if len(''.join(sentences[:i+1])) >= 500), len(sentences)-1)+1)])
-                return book.stem, passage
+        chapters = [x.strip() for x in re.split(r'(?m)^[ \t]*---[ \t]*$', book.read_text(encoding='utf-8-sig')) if x.strip()]
+        if chapters:
+            return book.stem, random.choice(chapters)
     raise RuntimeError('没有可用的古文段落')
 
 
