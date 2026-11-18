@@ -8,6 +8,7 @@ import random
 import re
 import xml.etree.ElementTree as ET
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import feedparser
 import requests
@@ -21,52 +22,69 @@ HEADERS = {'User-Agent': 'PersonalReadingRSS/1.0'}
 
 
 def sources():
+    '''
+    读取源列表
+    '''
     data = json.loads((ROOT / 'sources' / 'sources.json').read_text(encoding='utf-8'))
     return [feed for category in data['categories'] for feed in category['feeds'] if feed.get('rss')]
 
 
 def classic():
+    '''
+    随机选择古文段落
+    '''
     books = [p for p in (ROOT / 'sources').iterdir() if p.is_file() and p.suffix != '.json']
     random.shuffle(books)
     for book in books:
-        chapters = [x.strip() for x in re.split(r'(?m)^[ \t]*---[ \t]*$', book.read_text(encoding='utf-8-sig')) if x.strip()]
+        chapters = [x.strip() for x in re.split(r'(?m)^[ \t]*---[ \t]*$', book.read_text(encoding='utf-8-sig')) if x.strip()] # 按照---分割古文段落
         if chapters:
             return book.stem, random.choice(chapters)
     raise RuntimeError('没有可用的古文段落')
 
 
 def candidates(seen):
+    '''
+    每天随机选择一个 RSS 源，从最新拉取的条目中随机排列未读文章。
+    '''
     result, links = [], set(seen)
-    for source in sources():
-        try:
-            response = requests.get(source['rss'], headers=HEADERS, timeout=20)
-            response.raise_for_status()
-            feed = feedparser.parse(response.content)
-            for entry in feed.entries:
-                link = entry.get('link', '')
-                if link.startswith(('https://', 'http://')) and link not in links:
-                    links.add(link)
-                    result.append((source['name'], entry.get('title', ''), link))
-        except requests.RequestException as exc:
-            print(f"来源不可用 {source['name']}: {exc}")
+    available_sources = sources()
+    if not available_sources:
+        raise RuntimeError('没有配置 RSS 来源')
+    today = dt.datetime.now(ZoneInfo('Asia/Shanghai')).date().isoformat()
+    source = random.Random(today).choice(available_sources)
+    print(f"今日 RSS 来源：{source['name']}")
+    try:
+        response = requests.get(source['rss'], headers=HEADERS, timeout=20)
+        response.raise_for_status()
+        feed = feedparser.parse(response.content)
+        for entry in feed.entries:
+            link = entry.get('link', '')
+            if link.startswith(('https://', 'http://')) and link not in links:
+                links.add(link)
+                result.append((source['name'], entry.get('title', ''), link))
+    except requests.RequestException as exc:
+        print(f"来源不可用 {source['name']}: {exc}")
     random.shuffle(result)
     return result
 
 
 def generate():
+    '''
+    生成每日阅读内容
+    '''
     key = os.environ.get('DEEPSEEK_API_KEY')
     if not key:
         raise RuntimeError('请设置 DEEPSEEK_API_KEY')
-    state = json.loads(STATE.read_text(encoding='utf-8')) if STATE.exists() else {'items': [], 'seen': []}
+    state = json.loads(STATE.read_text(encoding='utf-8')) if STATE.exists() else {'items': [], 'seen': []}      # 读取历史记录
     client = OpenAI(api_key=key, base_url='https://api.deepseek.com', timeout=120, max_retries=0)
-    for source, title, link in candidates(state['seen']):
+    for source, title, link in candidates(state['seen']):           # 随机选择未读的文章
         try:
             response = requests.get(link, headers=HEADERS, timeout=30)
             response.raise_for_status()
-            body = trafilatura.extract(response.text, url=link, include_tables=True)
-            if not body or len(body) < 200:
+            body = trafilatura.extract(response.text, url=link, include_tables=True)        # 提取文章正文
+            if not body or len(body) < 200:         # 如果正文为空或长度小于200，则跳过
                 continue
-            if len(body) > 24000:
+            if len(body) > 24000:                   # 如果正文长度大于24000，则跳过
                 print(f'正文过长，跳过: {link}')
                 continue
             break
@@ -101,15 +119,18 @@ def generate():
     state['items'].extend([article, classical])
     state['items'] = state['items'][-100:]
     state['seen'].append(link)
-    STATE.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding='utf-8')
-    render(state)
+    STATE.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding='utf-8')         # 保存状态
+    render(state)           # 渲染为RSS和HTML
 
 
 def render(state):
+    '''
+    渲染为RSS和HTML
+    '''
     site = os.environ.get('FEED_SITE_URL', 'https://github.com/').rstrip('/')
-    OUT.mkdir(exist_ok=True)
+    OUT.mkdir(exist_ok=True)        # 创建输出目录
     pages = OUT / 'articles'
-    pages.mkdir(exist_ok=True)
+    pages.mkdir(exist_ok=True)      # 创建文章目录
     ET.register_namespace('content', 'http://purl.org/rss/1.0/modules/content/')
     rss = ET.Element('rss', version='2.0')
     channel = ET.SubElement(rss, 'channel')
